@@ -42,7 +42,8 @@ type ApplyMsg struct {
 
 //
 // A Go object implementing a single Raft peer.
-//
+
+//One of these raft structs for each server
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
@@ -165,6 +166,9 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
+//what does this (rf *Raft) mean? this is a method on the raft struct? 
+//our heartbeat RPC handler should be similar to this?
+//RPC handler is listening for heartbeats. we have to make that. it is a method of the raft struct
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -186,6 +190,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (3B).
+	//maybe listen and send out request votes in here? 
 
 	return index, term, isLeader
 }
@@ -218,33 +223,48 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
+	//make is like main. calling every method etc from here. Call your heartbeat listener and
+	//Start() etc from make
+
+	//check if you're a leader or follower, in the Raft struct
+	
+	
+	//how does Make() detect heartbeats? 
+
+	//heartbeats are AppendEntries RPCs without log entries 
+	//Define an AppendEntries RPC struct for heartbeats and send them out periodically from the leader. 
+	//So that other servers don't step forward when one has already been elected, write an AppendEntries 
+	//RPC handler method that resets the election timeout. See sendrequestvote for inspiration and notes 
+
+
+	
+
+
 	//go routine that is timing when we get the heartbeats
 	//have an election timer that is being incremented. Goes back to zero when it recieves heartbeat
 	//the go routine to send out the vote is sleeping until the election timer times out (hits some 
 	//designated num)
 	
-	go func(){
+	// go func(){
 
-	}
+	// }
 
 
 	//send a requestVoteArgs to everybody in peers except me
-
-
-	// RequestVoteArgs myRequest = RequestVoteArgs{Term:"something", 
-	// 											CandidateID: me, 
-	// 											LastLogIndex: 5, 
-	// 											LastLogTerm: 5}; 
+	//use sendRequestVote() function
+	RequestVoteArgs myRequest = RequestVoteArgs{Term:5, 
+												CandidateID: me, 
+												LastLogIndex: 5, 
+												LastLogTerm: 5}; 
 	
-	//how do we find last log index/term? (w/ the persister?)
+	//how do we find last log index/term?
+		//access these using the Raft Struct!!!
 	//do we need to change anything about ourselves to become a candidate?
-	//do we need to do anything to indicate we are voting for ourself?
-	//'send out requestvote rpc's when it hasn't heard from a peer in a while' Is it supposed to 
-	//be listening to all of the peers? or just for the leader's heartbeats? 
-	//how does Make() detect heartbeats? 
+		//yes change a field in the raft struct to indicate you are a candidate
 
+	
 	//increment current term in the struct
-	//become candidate? 
+	//become candidate 
 	//vote for self
 	//reset election timer
 
