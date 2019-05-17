@@ -59,12 +59,13 @@ type Raft struct {
 	Status    int   //0 if you are a leader, 1 if you are follower, 2 if you are candidate (see consts)
 	votedFor  int   //who you voted for. null if none
 	currentTerm int 
+	heartBeatReceived bool // If false when the heartbeatlistener times out, start election
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
 }
 
-//if command is null, it's a hearbeat,else it's a log entry
+//if command is null, it's a hearbeat, else it's a log entry
 type AppendEntries struct{
 	Command interface{}
 	term int
@@ -144,11 +145,8 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
-	//we are placing our votes
-	//this raft object rf is the one that is voting!! use the logic from the paper
-	//secure mutex
+	// 
 	//answer your reply by modifying requestvoteReply
-	//
 }
 
 //
@@ -211,7 +209,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (3B).
-	//maybe listen and send out request votes in here? 
 
 	return index, term, isLeader
 }
@@ -227,12 +224,46 @@ func (rf *Raft) Kill() {
 }
 
 //RPC handler for listening to heartbeats
-func (rf *Raft) hearbeatListener(){
+// Is called when a new heartbeat is received
+// Contains code for heartbeat listener as well as elections
+func (rf *Raft) heartbeatListener(){
+	// Sleep for duration of listen (150ms or something)
+	// On wakeup, check value of rf.heartBeatReceived
+	// If true:
+		// rf.heartBeatReceived = false
+	// If false, initiate election:
+		// rf.Status = candidate
+		// while rf.Status == candidate // only exits when become a follower or leader
+			// votearg = RequestVoteArgs{Term: rf.currentTerm, CandidateID: rf.me, LastLogIndex: , LastLogTerm: }
+			// This is different from how we set this up.
+			// We will need to have the reply struct have a channel end and the handler
+			// for each raft will put true or false into the channel
+			// Do time wait here
+			// First check if a leader was already elected while absent by checking our status
+			// If follower:
+				// increment term
+				// break
+			// else:
+				// Read everything from channel.  If num of true == num of peers, (or majority?) and no false:
+					// Become leader, defer sendHeartBeat()
+					// break
+				// Else, repeat loop
+	// thread dies/returns/exits
 
 }
 //do we need to make a function to send heartbeats? This would be send appendentries
 func (rf *Raft) sendHeartBeat() bool{
-	
+	// if rf.Status == leader
+		// loop through each peer and send a heartbeat using the Call rpc. Don't need response, don't call self
+	// set timeout
+	// defer rf.sendHeartBeat()
+}
+
+func (rf *Raft) heartBeatReceiver() {
+	// rf.heartBeatReceived = true
+	// rf.Status = follower
+	// defer rf.heartBeatListener() // This should work, as long as the rpc thinks it went well
+	// return/exit
 }
 
 
@@ -254,59 +285,21 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
-	
-
-	//check if you're a leader or follower, in the Raft struct
-	//if leader, send out heartbeats
-	//else listen for heartbeats 
-	
-	//RPC handler for heartbeats
-
-	//make is like main. calling every method etc from here. Call your heartbeat listener and
-	//Start() etc from make
-	//heartbeats are AppendEntries RPCs without log entries 
-	//Define an AppendEntries RPC struct for heartbeats and send them out periodically from the leader. 
-	//So that other servers don't step forward when one has already been elected, write an AppendEntries 
-	//RPC handler method that resets the election timeout. See sendrequestvote for inspiration and notes 
+	// Assign values to objects,
+	// Start a goroutine of the heartbeat listener
+	//   Must be a method
+	// Return Raft
 
 
-	
 
 
-	//go routine that is timing when we get the heartbeats
-	//have an election timer that is being incremented. Goes back to zero when it recieves heartbeat
-	//the go routine to send out the vote is sleeping until the election timer times out (hits some 
-	//designated num)
-	
-	// go func(){
-
-	// }
 
 
-	//send a requestVoteArgs to everybody in peers except me
-	//use sendRequestVote() function
 
-	
-	//how do we find last log index/term?
-		//access these using the Raft Struct!!!
-	//do we need to change anything about ourselves to become a candidate?
-		//yes change a field in the raft struct to indicate you are a candidate
 
-	
-	//increment current term in the struct
-	//become candidate 
-	//vote for self
-	//reset election timer
-
-	//from paper
-	//If votes received from majority of servers: become leader
-	//If AppendEntries RPC received from new leader: convert to
-	//follower
-	//If election timeout elapses: start new election
-
-	for int i:=0; i<len(peers); i++{
-		//send requestVoteArgs to all of the peers
-	}
+	// Unimplemented:
+	// What to do if you are the leader
+	// Changing from candidate to follower if received AppendEntries RPC
 
 	// Your initialization code here (3A, 3B, 3C).
 
