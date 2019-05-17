@@ -20,6 +20,11 @@ package raft
 import "sync"
 import "labrpc"
 
+const leader = 0;
+const follower = 1; 
+const candidate = 2;  
+
+
 // import "bytes"
 // import "labgob"
 
@@ -49,21 +54,29 @@ type Raft struct {
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
 	me        int                 // this peer's index into peers[]
-
-	// Your data here (3A, 3B, 3C).
+	
+	Log       []AppendEntries
+	Status    int   //0 if you are a leader, 1 if you are follower, 2 if you are candidate (see consts)
+	votedFor  int   //who you voted for. null if none
+	currentTerm int 
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+}
+
+//if command is null, it's a hearbeat,else it's a log entry
+type AppendEntries struct{
+	Command interface{}
+	term int
 }
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
 
-	var term int
-	var isleader bool
 	// Your code here (3A).
-	return term, isleader
+	var term int = (rf.Log[len(rf.Log)-1]).term
+	return term, rf.Status==leader
 }
 
 //
@@ -131,6 +144,11 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
+	//we are placing our votes
+	//this raft object rf is the one that is voting!! use the logic from the paper
+	//secure mutex
+	//answer your reply by modifying requestvoteReply
+	//
 }
 
 //
@@ -166,7 +184,10 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
-//what does this (rf *Raft) mean? this is a method on the raft struct? 
+
+
+
+
 //our heartbeat RPC handler should be similar to this?
 //RPC handler is listening for heartbeats. we have to make that. it is a method of the raft struct
 
@@ -205,6 +226,16 @@ func (rf *Raft) Kill() {
 	// Your code here, if desired.
 }
 
+//RPC handler for listening to heartbeats
+func (rf *Raft) hearbeatListener(){
+
+}
+//do we need to make a function to send heartbeats? This would be send appendentries
+func (rf *Raft) sendHeartBeat() bool{
+	
+}
+
+
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -223,14 +254,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
-	//make is like main. calling every method etc from here. Call your heartbeat listener and
-	//Start() etc from make
+	
 
 	//check if you're a leader or follower, in the Raft struct
+	//if leader, send out heartbeats
+	//else listen for heartbeats 
 	
-	
-	//how does Make() detect heartbeats? 
+	//RPC handler for heartbeats
 
+	//make is like main. calling every method etc from here. Call your heartbeat listener and
+	//Start() etc from make
 	//heartbeats are AppendEntries RPCs without log entries 
 	//Define an AppendEntries RPC struct for heartbeats and send them out periodically from the leader. 
 	//So that other servers don't step forward when one has already been elected, write an AppendEntries 
@@ -252,10 +285,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	//send a requestVoteArgs to everybody in peers except me
 	//use sendRequestVote() function
-	RequestVoteArgs myRequest = RequestVoteArgs{Term:5, 
-												CandidateID: me, 
-												LastLogIndex: 5, 
-												LastLogTerm: 5}; 
+
 	
 	//how do we find last log index/term?
 		//access these using the Raft Struct!!!
