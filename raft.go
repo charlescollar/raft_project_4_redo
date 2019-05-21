@@ -234,6 +234,7 @@ func (rf *Raft) heartbeatListener(){
 	// If false, initiate election:
 		// rf.Status = candidate
 		// while rf.Status == candidate // only exits when become a follower or leader
+			// Increment term
 			// votearg = RequestVoteArgs{Term: rf.currentTerm, CandidateID: rf.me, LastLogIndex: , LastLogTerm: }
 			// This is different from how we set this up.
 			// We will need to have the reply struct have a channel end and the handler
@@ -241,7 +242,6 @@ func (rf *Raft) heartbeatListener(){
 			// Do time wait here
 			// First check if a leader was already elected while absent by checking our status
 			// If follower:
-				// increment term
 				// break
 			// else:
 				// Read everything from channel.  If num of true == num of peers, (or majority?) and no false:
@@ -262,6 +262,7 @@ func (rf *Raft) sendHeartBeat() bool{
 func (rf *Raft) heartBeatReceiver() {
 	// rf.heartBeatReceived = true
 	// rf.Status = follower
+	// rf.Term = heartbeat's term
 	// defer rf.heartBeatListener() // This should work, as long as the rpc thinks it went well
 	// return/exit
 }
@@ -286,7 +287,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Assign values to objects,
-	// Start a goroutine of the heartbeat listener
+	// Defer heartbeat listener
 	//   Must be a method
 	// Return Raft
 
