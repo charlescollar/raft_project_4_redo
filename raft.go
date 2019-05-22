@@ -326,22 +326,28 @@ func (rf *Raft) heartbeatListener(){
 
 }
 //do we need to make a function to send heartbeats? This would be send appendentries
-func (rf *Raft) sendHeartBeat() bool{
-	// if rf.Status == leader
+func (rf *Raft) sendHeartBeat(){
+	if rf.Status == leader{
 		// loop through each peer and send a heartbeat using the Call rpc. Don't need response, don't call self
+		heartbeat = AppendEntries{Command: null, Term: rf.Term}
+		for i in rf.peers{
+			if i.me !=rf.me{
+				rf.peers[i].Call("Raft.heartBeatReceiver", heartbeat); 
+			}
+			//if i am sending something to myself. dont wanna do that
+		}
+	}
 	// set timeout
-	// defer rf.sendHeartBeat()
+	defer rf.sendHeartBeat()
 }
 
 func (rf *Raft) heartBeatReceiver(heartbeat AppendEntries) {
-	//if heartbeat.term >= rf.CurrentTerm
-		// rf.heartBeatReceived = true
-		// rf.Status = follower
-		// rf.Term = heartbeat's term
-		// defer rf.heartBeatListener() // This should work, as long as the rpc thinks it went well
-		// return/exit
-	//else
-		//return/do nothing
+	if heartbeat.term >= rf.CurrentTerm{
+		rf.heartBeatReceived = true
+		rf.Status = follower
+		rf.Term = heartbeat.Term
+		defer rf.heartBeatListener() // This should work, as long as the rpc thinks it went well
+	}
 }
 
 
