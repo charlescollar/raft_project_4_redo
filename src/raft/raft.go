@@ -151,40 +151,44 @@ type RequestVoteArgs struct {
 	CandidateID int
 	LastLogIndex int
 	LastLogTerm int
+	SendingChannel chan bool
 }
 
 //
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 //
+// type RequestVoteReply struct {
+// 	// Your data here (3A).
+// 	VoteChannel chan bool  //send your votes down this channel
+// }
+
 type RequestVoteReply struct {
-	// Your data here (3A).
-	VoteChannel chan bool  //send your votes down this channel
+	Nothing bool
 }
 
 //
 // example RequestVote RPC handler.
 //
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+func (rf *Raft) RequestVote(Term int, CandidateID int, LastLogIndex int, LastLogTerm int, SendingChannel chan bool) {//(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 	//send your vote response (true/false) down the reply channel
 	//in this func, rf is the server who is voting
 	fmt.Println("Received a request to vote")
 	//fmt.Println("args.Term: ",args.Term," | args.CandidateID: ",args.CandidateID," | rf.VotedFor: ",rf.VotedFor," | rf.VotedForTerm: ",rf.VotedForTerm)
-	if args.Term > rf.VotedForTerm{
-		rf.VotedForTerm = args.Term
+	if Term > rf.VotedForTerm{
+		rf.VotedForTerm = Term
 		rf.VotedFor = -1
 	}
-	if (rf.VotedFor == -1 || rf.VotedFor == args.CandidateID) && args.Term == rf.VotedForTerm {
+	if (rf.VotedFor == -1 || rf.VotedFor == CandidateID) && Term == rf.VotedForTerm {
 		//if chandidates log is at-least as up to date as reciever's log
-		if (args.LastLogIndex >= rf.GetLastLogIndex()) && (args.LastLogTerm >= rf.GetLastLogTerm()){
-			reply.VoteChannel <- true
-			rf.VotedFor = args.CandidateID
-			rf.VotedForTerm = args.Term
+		if (LastLogIndex >= rf.GetLastLogIndex()) && (LastLogTerm >= rf.GetLastLogTerm()){
+			SendingChannel <- true
+			rf.VotedFor = CandidateID
+			rf.VotedForTerm = Term
 		}
 	}
 	//else, do nothing!
-	
 }
 
 //
@@ -279,26 +283,28 @@ func (rf *Raft) HeartbeatListener(){
 			rf.CurrentTerm += 1
 			fmt.Println("\nStart election: ", rf.CurrentTerm)
 			fmt.Println("Number of peers: ", len(rf.peers))
+			myChannel := make(chan bool)
 			Votearg := RequestVoteArgs{Term:rf.CurrentTerm, 
 										CandidateID: rf.me, 
 										LastLogIndex: rf.GetLastLogIndex(), 
-										LastLogTerm: rf.GetLastLogTerm()}
-			myChannel := make(chan bool)
-			VoteReply := RequestVoteReply{VoteChannel: myChannel}
+										LastLogTerm: rf.GetLastLogTerm(),
+										SendingChannel: myChannel}
+			//VoteReply := RequestVoteReply{VoteChannel: myChannel}
+			//VoteReply := RequestVoteReply{Nothing: false}
 			//"votes received from a majority of servers become leader"
 			for i:= 0; i < len(rf.peers); i++ { //sending voteRequest to all servers
-				rf.SendRequestVote(i, &Votearg, &VoteReply)
+				go rf.SendRequestVote(i, &Votearg, nil)
 			}
 			//start the election timer
 			 //after the election timer, count votes in your channel
 			go func() {
-				time.Sleep(300 * time.Millisecond)
-				VoteReply.VoteChannel <- false //timeout
+				time.Sleep(1000 * time.Millisecond)
+				Votearg.SendingChannel <- false //timeout
 			}()
 			//now count votes. If we receive a majority of trues then we are leader
 			voteCount := 0
 			for voteCount*2 <= len(rf.peers) {
-				vote := <- VoteReply.VoteChannel
+				vote := <- Votearg.SendingChannel
 				if !vote {
 					//timeout
 					break 
