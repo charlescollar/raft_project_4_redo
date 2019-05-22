@@ -1,5 +1,6 @@
 package raft
 
+
 //
 // this is an outline of the API that raft must expose to
 // the service (or tester). see comments below for
@@ -19,6 +20,8 @@ package raft
 
 import "sync"
 import "labrpc"
+import "time"
+
 
 const leader = 0;
 const follower = 1; 
@@ -26,7 +29,7 @@ const candidate = 2;
 
 
 // import "bytes"
-// import "labgob"
+import "labgob"
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -57,9 +60,10 @@ type Raft struct {
 	
 	Log       []AppendEntries
 	Status    int   //0 if you are a leader, 1 if you are follower, 2 if you are candidate (see consts)
-	votedFor  int   //who you voted for. null if none
-	currentTerm int 
-	heartBeatReceived bool // If false when the heartbeatlistener times out, start election
+	VotedFor  int   //who you voted for. null if none.
+	VotedForTerm int //term that you last voted in
+	CurrentTerm int 
+	HeartBeatReceived bool // If false when the heartbeatlistener times out, start election
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
@@ -68,15 +72,34 @@ type Raft struct {
 //if command is null, it's a hearbeat, else it's a log entry
 type AppendEntries struct{
 	Command interface{}
-	term int
+	Term int
 }
+func(rf *Raft) GetLastLogIndex() (int){
+	if len(rf.Log) == 0{
+		return 0
+	}
+	else{
+		index := len(rf.Log) - 1 
+		return index
+	}
+}
+func(rf *Raft) GetLastLogTerm() (int){
+	if len(rf.Log) == 0{
+		//if log is empty, our last log term is 0
+		return 0
+	}
+	else{
+		index := len(rf.Log) - 1 
+		term := rf.Log[index].Term
+		return term
 
+}
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
 
 	// Your code here (3A).
-	var term int = (rf.Log[len(rf.Log)-1]).term
+	var term int = rf.currentTerm
 	return term, rf.Status==leader
 }
 
@@ -136,8 +159,8 @@ type RequestVoteArgs struct {
 //
 type RequestVoteReply struct {
 	// Your data here (3A).
-	Term int64
-	VoteGranted bool
+	VoteChannel chan  //send your votes down this channel
+
 }
 
 //
@@ -145,8 +168,20 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
-	// 
-	//answer your reply by modifying requestvoteReply
+	//send your vote response (true/false) down the reply channel
+	//in this func, rf is the server who is voting
+	if args.Term > rf.VotedForTerm{
+		rf.VotedForTerm = args.Term
+		rf.VotedFor = null
+	}
+	if (rf.VotedFor == null || rf.VotedFor == args.CandidateID) && args.Term == rf.VotedForTerm {
+		//if chandidates log is at-least as up to date as reciever's log
+		if (args.LastLogIndex >= rf.LastLogIndex) && (args.LastLogTerm >= rf.LastLogTerm){
+			reply.VoteChannel <- true
+		}
+	}
+	//else, do nothing!
+	
 }
 
 //
@@ -227,15 +262,54 @@ func (rf *Raft) Kill() {
 // Is called when a new heartbeat is received
 // Contains code for heartbeat listener as well as elections
 func (rf *Raft) heartbeatListener(){
+	time.sleep(500)
 	// Sleep for duration of listen (150ms or something)
 	// On wakeup, check value of rf.heartBeatReceived
 	// If true:
-		// rf.heartBeatReceived = false
-	// If false, initiate election:
-		// rf.Status = candidate
-		// while rf.Status == candidate // only exits when become a follower or leader
-			// Increment term
-			// votearg = RequestVoteArgs{Term: rf.currentTerm, CandidateID: rf.me, LastLogIndex: , LastLogTerm: }
+	if rf.heartBeatReceived{
+		rf.heartBeatReceived = false
+	}
+	else{ //initiate election
+		rf.Status = candidate
+		while rf.Status == candidate{ // only exits when become a follower or leader
+			rf.Term += 1
+			votearg := RequestVoteArgs{Term:rf.currentTerm, 
+										CandidateID: rf.me, 
+										LastLogIndex: rf.GetLastLogIndex, 
+										LastLogTerm: rf.GetLastLogTerm}
+			myChannel := make(chan bool)
+			voteReply = RequestVoteReply{VoteChannel: myChannel}
+			//"votes received from a majority of servers become leader"
+			for i in rf.peers{ //sending voteRequest to all servers
+				sendRequestVote(i, votearg, voteReply)
+			}
+			//start the election timer
+			 //after the election timer, count votes in your channel
+			go func(){
+				time.sleep(300)
+				voteReply.VoteChannel <- false //timeout
+			}
+			//now count votes. If we receive a majority of trues then we are leader
+			voteCount := 0
+			while voteCount*2 <= len(rf.peers){
+				vote := <- voteReply.VoteChannel
+				if !vote{
+					//timeout
+					break 
+				}
+				voteCount += 1; 
+			}
+			if rf.Status == follower{
+				break
+			}
+			if voteCount*2 > len(rf.peers){
+				//we are the leader!
+				rf.Status = leader 
+				defer rf.sendHeartBeat()
+			}
+				
+		}
+	}
 			// This is different from how we set this up.
 			// We will need to have the reply struct have a channel end and the handler
 			// for each raft will put true or false into the channel
@@ -259,12 +333,15 @@ func (rf *Raft) sendHeartBeat() bool{
 	// defer rf.sendHeartBeat()
 }
 
-func (rf *Raft) heartBeatReceiver() {
-	// rf.heartBeatReceived = true
-	// rf.Status = follower
-	// rf.Term = heartbeat's term
-	// defer rf.heartBeatListener() // This should work, as long as the rpc thinks it went well
-	// return/exit
+func (rf *Raft) heartBeatReceiver(heartbeat AppendEntries) {
+	//if heartbeat.term >= rf.CurrentTerm
+		// rf.heartBeatReceived = true
+		// rf.Status = follower
+		// rf.Term = heartbeat's term
+		// defer rf.heartBeatListener() // This should work, as long as the rpc thinks it went well
+		// return/exit
+	//else
+		//return/do nothing
 }
 
 
