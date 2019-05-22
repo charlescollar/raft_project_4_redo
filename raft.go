@@ -369,17 +369,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
+	defer rf.heartBeatListener()
 	// Assign values to objects,
 	// Defer heartbeat listener
 	//   Must be a method
 	// Return Raft
-
-
-
-
-
-
-
 
 	// Unimplemented:
 	// What to do if you are the leader
