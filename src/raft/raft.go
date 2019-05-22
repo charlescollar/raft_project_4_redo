@@ -368,6 +368,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	
+	rf.Log = make([]AppendEntries, 0)
+	rf.Status = follower
+	rf.VotedFor = -1
+	rf.VotedForTerm = -1
+	rf.CurrentTerm = 0
+	rf.HeartbeatReceived = false
 
 	go rf.HeartbeatListener()
 	// Assign values to objects,
