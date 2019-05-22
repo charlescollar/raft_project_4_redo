@@ -21,6 +21,7 @@ package raft
 import "sync"
 import "labrpc"
 import "time"
+import "fmt"
 //import "math/rand"
 //import "labgob"
 
@@ -159,7 +160,6 @@ type RequestVoteArgs struct {
 type RequestVoteReply struct {
 	// Your data here (3A).
 	VoteChannel chan bool  //send your votes down this channel
-
 }
 
 //
@@ -169,6 +169,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 	//send your vote response (true/false) down the reply channel
 	//in this func, rf is the server who is voting
+	fmt.Println("Received a request to vote")
+	//fmt.Println("args.Term: ",args.Term," | args.CandidateID: ",args.CandidateID," | rf.VotedFor: ",rf.VotedFor," | rf.VotedForTerm: ",rf.VotedForTerm)
 	if args.Term > rf.VotedForTerm{
 		rf.VotedForTerm = args.Term
 		rf.VotedFor = -1
@@ -215,7 +217,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) SendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	fmt.Println("Sending a vote request")
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	fmt.Println(ok)
 	return ok
 }
 
@@ -273,26 +277,28 @@ func (rf *Raft) HeartbeatListener(){
 		rf.Status = candidate
 		for rf.Status == candidate { // only exits when become a follower or leader
 			rf.CurrentTerm += 1
-			votearg := RequestVoteArgs{Term:rf.CurrentTerm, 
+			fmt.Println("\nStart election: ", rf.CurrentTerm)
+			fmt.Println("Number of peers: ", len(rf.peers))
+			Votearg := RequestVoteArgs{Term:rf.CurrentTerm, 
 										CandidateID: rf.me, 
 										LastLogIndex: rf.GetLastLogIndex(), 
 										LastLogTerm: rf.GetLastLogTerm()}
 			myChannel := make(chan bool)
-			voteReply := RequestVoteReply{VoteChannel: myChannel}
+			VoteReply := RequestVoteReply{VoteChannel: myChannel}
 			//"votes received from a majority of servers become leader"
 			for i:= 0; i < len(rf.peers); i++ { //sending voteRequest to all servers
-				rf.SendRequestVote(i, &votearg, &voteReply)
+				rf.SendRequestVote(i, &Votearg, &VoteReply)
 			}
 			//start the election timer
 			 //after the election timer, count votes in your channel
 			go func() {
 				time.Sleep(300 * time.Millisecond)
-				voteReply.VoteChannel <- false //timeout
+				VoteReply.VoteChannel <- false //timeout
 			}()
 			//now count votes. If we receive a majority of trues then we are leader
 			voteCount := 0
 			for voteCount*2 <= len(rf.peers) {
-				vote := <- voteReply.VoteChannel
+				vote := <- VoteReply.VoteChannel
 				if !vote {
 					//timeout
 					break 
@@ -302,6 +308,7 @@ func (rf *Raft) HeartbeatListener(){
 			if rf.Status == follower{
 				break
 			}
+			fmt.Println("Number of votes received: ", voteCount)
 			if voteCount*2 > len(rf.peers){
 				//we are the leader!
 				rf.Status = leader 
