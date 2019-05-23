@@ -22,7 +22,7 @@ import "sync"
 import "labrpc"
 import "time"
 import "fmt"
-// import "math/rand"
+import "math/rand"
 // import "labgob"
 // import "bytes"
 
@@ -324,7 +324,7 @@ func (rf *Raft) HeartbeatListener(){
 			//after the election timer, count votes in your channel
 			timeout := make(chan bool)
 			go func() {
-				time.Sleep(1000 * time.Millisecond)
+				time.Sleep(time.Duration(900 + rand.Intn(200)) * time.Millisecond)
 				timeout <- false //timeout
 			}()
 			//If we receive a majority of votes before timeout then we are leader
@@ -384,7 +384,7 @@ func (rf *Raft) SendHeartbeat(){
 		}
 		rf.mu.Unlock()
 	}
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	// set timeout
 	defer rf.SendHeartbeat()
 }
