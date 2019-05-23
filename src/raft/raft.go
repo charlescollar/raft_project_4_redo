@@ -173,10 +173,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 	//send your vote response (true/false) down the reply channel
 	//in this func, rf is the server who is voting
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	fmt.Println("Received a request to vote")
-	return
+	//rf.mu.Lock()
 	//fmt.Println("args.Term: ",args.Term," | args.CandidateID: ",args.CandidateID," | rf.VotedFor: ",rf.VotedFor," | rf.VotedForTerm: ",rf.VotedForTerm)
 	if args.Term > rf.VotedForTerm{
 		rf.VotedForTerm = args.Term
@@ -185,11 +182,18 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if (rf.VotedFor == -1 || rf.VotedFor == args.CandidateID) && args.Term == rf.VotedForTerm {
 		//if chandidates log is at-least as up to date as reciever's log
 		if (args.LastLogIndex >= rf.GetLastLogIndex()) && (args.LastLogTerm >= rf.GetLastLogTerm()){
-			reply.VoteChannel <- true
+			fmt.Println("Voting true from",rf.me,"for",args.CandidateID,"on term",args.Term)
 			rf.VotedFor = args.CandidateID
 			rf.VotedForTerm = args.Term
+			fmt.Println("VotedFor",rf.VotedFor,"VotedForTerm",rf.VotedForTerm)
+			reply.VoteChannel <- true
+		} else {
+			fmt.Println("Not voting cause of log problems")
 		}
+	} else {
+		fmt.Println("Not voting for them cause of term problems")
 	}
+	//rf.mu.Unlock()
 	//else, do nothing!
 }
 
@@ -223,9 +227,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) SendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	fmt.Println("Sending a vote request")
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	fmt.Println(ok)
+	if !ok {
+		fmt.Println("RPC Didn't go through!")
+	}
 	return ok
 }
 
@@ -283,17 +288,16 @@ func (rf *Raft) HeartbeatListener(){
 		rf.Status = candidate
 		for rf.Status == candidate { // only exits when become a follower or leader
 			rf.CurrentTerm += 1
-			fmt.Println("\nStart election: ", rf.CurrentTerm)
-			fmt.Println("Number of peers: ", len(rf.peers))
+			fmt.Println(rf.CurrentTerm)
 			//myChannel := make(chan bool)
 			Votearg := RequestVoteArgs{Term: rf.CurrentTerm, 
 										CandidateID: rf.me, 
 										LastLogIndex: rf.GetLastLogIndex(), 
 										LastLogTerm: rf.GetLastLogTerm()}
-			VoteReply := RequestVoteReply{VoteChannel: make(chan bool)}
+			VoteReply := RequestVoteReply{VoteChannel: make(chan bool, len(rf.peers))}
 			//"votes received from a majority of servers become leader"
 			for i:= 0; i < len(rf.peers); i++ { //sending voteRequest to all servers
-				rf.SendRequestVote(i, &Votearg, &VoteReply)
+				go rf.SendRequestVote(i, &Votearg, &VoteReply)
 			}
 			//start the election timer
 			 //after the election timer, count votes in your channel
@@ -305,6 +309,7 @@ func (rf *Raft) HeartbeatListener(){
 			voteCount := 0
 			for voteCount*2 <= len(rf.peers) {
 				vote := <- VoteReply.VoteChannel
+				fmt.Println("My vote is ",vote)
 				if !vote {
 					//timeout
 					break 
@@ -317,6 +322,7 @@ func (rf *Raft) HeartbeatListener(){
 			fmt.Println("Number of votes received: ", voteCount)
 			if voteCount*2 > len(rf.peers){
 				//we are the leader!
+				fmt.Println("I became the leader!")
 				rf.Status = leader 
 				defer rf.SendHeartbeat()
 			}
