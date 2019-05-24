@@ -1,6 +1,5 @@
 package raft
 
-
 //
 // this is an outline of the API that raft must expose to
 // the service (or tester). see comments below for
@@ -21,17 +20,15 @@ package raft
 import "sync"
 import "labrpc"
 import "time"
-import "fmt"
 import "math/rand"
-// import "labgob"
+// import "fmt"
+
 // import "bytes"
+// import "labgob"
 
-const leader = 0;
-const follower = 1; 
-const candidate = 2;  
-
-
-
+const LEADER = 0;
+const FOLLOWER = 1; 
+const CANDIDATE = 2;  
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -52,27 +49,28 @@ type ApplyMsg struct {
 
 //
 // A Go object implementing a single Raft peer.
-
-//One of these raft structs for each server
+//
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
 	me        int                 // this peer's index into peers[]
-	
+
+
 	Log       []AppendEntries
 	Status    int   //0 if you are a leader, 1 if you are follower, 2 if you are candidate (see consts)
 	VotedFor  int   //who you voted for. null if none.
 	VotedForTerm int //term that you last voted in
 	CurrentTerm int 
-	HeartbeatReceived bool // If false when the heartbeatlistener times out, start election
+	HeartBeatReceived bool // If false when the heartbeatlistener times out, start election
 	NumOfVotes int
+	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
 }
 
-//if command is null, it's a hearbeat, else it's a log entry
+//if command is nil, it's a hearbeat, else it's a log entry
 type AppendEntries struct{
 	Command interface{}
 	Term int
@@ -100,13 +98,12 @@ func(rf *Raft) GetLastLogTerm() (int){
 		return term
 	}
 }
+
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
 	// Your code here (3A).
-	var term int = rf.CurrentTerm
-	return term, rf.Status==leader
+	return rf.CurrentTerm, rf.Status == LEADER
 }
 
 //
@@ -140,7 +137,7 @@ func (rf *Raft) readPersist(data []byte) {
 	// var yyy
 	// if d.Decode(&xxx) != nil ||
 	//    d.Decode(&yyy) != nil {
-	//   //error...
+	//   error...
 	// } else {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
@@ -163,12 +160,8 @@ type RequestVoteArgs struct {
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 //
-// type RequestVoteReply struct {
-// 	// Your data here (3A).
-// 	VoteChannel chan bool  //send your votes down this channel
-// }
-
 type RequestVoteReply struct {
+	// Your data here (3A).
 	Vote bool
 	Term int
 }
@@ -178,32 +171,42 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
-	//send your vote response (true/false) down the reply channel
-	//in this func, rf is the server who is voting
-	//rf.mu.Lock()
-	//fmt.Println("args.Term: ",args.Term," | args.CandidateID: ",args.CandidateID," | rf.VotedFor: ",rf.VotedFor," | rf.VotedForTerm: ",rf.VotedForTerm)
+	// Check that term >= CurrentTerm
+	// Check if we've voted for someone this term
+	// fmt.Println(rf.me,"has received a request from",args.CandidateID)
 	rf.mu.Lock()
-	if args.Term > rf.VotedForTerm{
-		rf.VotedForTerm = args.Term
-		rf.VotedFor = -1
-	}
-	if (rf.VotedFor == -1 || rf.VotedFor == args.CandidateID) && args.Term == rf.VotedForTerm {
-		//if chandidates log is at-least as up to date as reciever's log
-		if (args.LastLogIndex >= rf.GetLastLogIndex()) && (args.LastLogTerm >= rf.GetLastLogTerm()){
-			fmt.Println("Voting true from",rf.me,"for",args.CandidateID,"on term",args.Term)
-			rf.VotedFor = args.CandidateID
-			rf.VotedForTerm = args.Term
-			fmt.Println("VotedFor",rf.VotedFor,"VotedForTerm",rf.VotedForTerm)
-			reply.Vote = true
-			reply.Term = rf.VotedForTerm
-		} else {
-			fmt.Println("Not voting cause of log problems")
+	// Cannot get a heartbeat... will have to think about this
+	if args.Term >= rf.CurrentTerm && args.Term > rf.VotedForTerm {
+		// Check if candidate's log is as up to date as ours
+		if rf.GetLastLogIndex() <= args.LastLogIndex {
+			// Check then it has as many items
+			if rf.GetLastLogTerm() <= args.LastLogTerm {
+				// Set votedforterm to be this term of the request
+				// fmt.Println(rf.me,"is voting for",args.CandidateID)
+				rf.VotedForTerm = args.Term
+				rf.VotedFor = args.CandidateID
+				reply.Vote = true
+				reply.Term = args.Term
+			}
 		}
-	} else {
-		fmt.Println("Not voting for them cause of term problems")
 	}
 	rf.mu.Unlock()
-	//else, do nothing!
+}
+
+func (rf *Raft) HeartBeatReceiver(args *AppendEntries, reply *AppendReply) {
+	// Your code here 3A
+	// Check that term of heartbeat is >= own term
+	// fmt.Println("Received Heart Beat")
+	rf.mu.Lock()
+	if args.Term >= rf.CurrentTerm {
+		// Change status to follower
+		rf.Status = FOLLOWER
+		// Change hearbeatreceived to true
+		rf.HeartBeatReceived = true
+		// Change term to heartbeat's
+		rf.CurrentTerm = args.Term
+	}
+	rf.mu.Unlock()
 }
 
 //
@@ -235,25 +238,21 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 //
-func (rf *Raft) SendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	if !ok {
-		fmt.Println("RPC Didn't go through!")
-	} else {
-		if reply.Vote && reply.Term == rf.CurrentTerm {
-			rf.mu.Lock()
-			rf.NumOfVotes += 1
-			rf.mu.Unlock()
-		}
+	if reply.Vote {
+		rf.mu.Lock()
+		rf.NumOfVotes += 1
+		rf.mu.Unlock()
 	}
 	return ok
 }
 
 
-
-
-//our heartbeat RPC handler should be similar to this?
-//RPC handler is listening for heartbeats. we have to make that. it is a method of the raft struct
+func (rf *Raft) sendHeartBeat(server int, args *AppendEntries, reply *AppendReply) bool {
+	ok := rf.peers[server].Call("Raft.HeartBeatReceiver", args, reply)
+	return ok
+}
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -289,118 +288,6 @@ func (rf *Raft) Kill() {
 	// Your code here, if desired.
 }
 
-//RPC handler for listening to heartbeats
-// Is called when a new heartbeat is received
-// Contains code for heartbeat listener as well as elections
-func (rf *Raft) HeartbeatListener(){
-	time.Sleep(500 * time.Millisecond)
-	// Sleep for duration of listen (150ms or something)
-	// On wakeup, check value of rf.heartBeatReceived
-	// If true:
-	rf.mu.Lock()
-	if rf.HeartbeatReceived {
-		rf.HeartbeatReceived = false
-		rf.mu.Unlock()
-	} else { //initiate election
-		rf.Status = candidate
-		for rf.Status == candidate { // only exits when become a follower or leader
-			rf.CurrentTerm += 1
-			rf.NumOfVotes = 0
-			rf.mu.Unlock()
-			fmt.Println(rf.CurrentTerm)
-			//myChannel := make(chan bool)
-			Votearg := RequestVoteArgs{Term: rf.CurrentTerm, 
-										CandidateID: rf.me, 
-										LastLogIndex: rf.GetLastLogIndex(), 
-										LastLogTerm: rf.GetLastLogTerm()}
-			//"votes received from a majority of servers become leader"
-			for i:= 0; i < len(rf.peers); i++ { //sending voteRequest to all servers
-				rf.mu.Lock() // lock to make sure all votes requests are the same?
-				VoteReply := RequestVoteReply{Vote: false, Term: rf.CurrentTerm}
-				go rf.SendRequestVote(i, &Votearg, &VoteReply)
-				rf.mu.Unlock()
-			}
-			//start the election timer
-			//after the election timer, count votes in your channel
-			timeout := make(chan bool)
-			go func() {
-				time.Sleep(time.Duration(900 + rand.Intn(200)) * time.Millisecond)
-				timeout <- false //timeout
-			}()
-			//If we receive a majority of votes before timeout then we are leader
-			for {
-				select {
-				case <- timeout:
-					break
-				default:
-					if rf.NumOfVotes * 2 > len(rf.peers) {
-						fmt.Println("I became the leader!")
-						rf.mu.Lock()
-						rf.Status = leader
-						defer rf.SendHeartbeat()
-						rf.mu.Unlock()
-						return
-					}
-				}
-			}
-			// voteCount := 0
-			// for voteCount*2 <= len(rf.peers) {
-			// 	vote := <- VoteReply.VoteChannel
-			// 	fmt.Println("My vote is ",vote)
-			// 	if !vote {
-			// 		//timeout
-			// 		break 
-			// 	}
-			// 	voteCount += 1; 
-			// }
-			// if rf.Status == follower{
-			// 	break
-			// }
-			// rf.mu.Lock()
-			// fmt.Println("Number of votes received: ", voteCount)
-			// if voteCount*2 > len(rf.peers){
-			// 	//we are the leader!
-			// 	fmt.Println("I became the leader!")
-			// 	rf.Status = leader 
-			// 	defer rf.SendHeartbeat()
-			// }
-			// rf.mu.Unlock()
-		}
-	}
-}
-//do we need to make a function to send heartbeats? This would be send appendentries
-func (rf *Raft) SendHeartbeat(){
-	if rf.Status == leader{
-		// loop through each peer and send a heartbeat using the Call rpc. Don't need response, don't call self
-		heartbeat := AppendEntries{Command: nil, Term: rf.CurrentTerm}
-		response := AppendReply{}
-		rf.mu.Lock()
-		for i := 0; i < len(rf.peers); i++ {
-			if i != rf.me {
-				fmt.Println("Sending a heartbeat")
-				go rf.peers[i].Call("Raft.HeartbeatReceiver", &heartbeat, &response)
-			}
-			//if i am sending something to myself. dont wanna do that
-		}
-		rf.mu.Unlock()
-	}
-	time.Sleep(200 * time.Millisecond)
-	// set timeout
-	defer rf.SendHeartbeat()
-}
-
-func (rf *Raft) HeartbeatReceiver(heartbeat *AppendEntries, reply *AppendReply) {
-	if heartbeat.Term >= rf.CurrentTerm{
-		rf.mu.Lock()
-		rf.HeartbeatReceived = true
-		rf.Status = follower
-		rf.CurrentTerm = heartbeat.Term
-		rf.mu.Unlock()
-		go rf.HeartbeatListener() // This should work, as long as the rpc thinks it went well
-	}
-}
-
-
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -418,23 +305,108 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-	
+
 	rf.Log = make([]AppendEntries, 0)
-	rf.Status = follower
+	rf.Status = FOLLOWER
 	rf.VotedFor = -1
 	rf.VotedForTerm = -1
 	rf.CurrentTerm = 0
-	rf.HeartbeatReceived = false
-
-	go rf.HeartbeatListener()
-	// Assign values to objects,
-	// Defer heartbeat listener
-	//   Must be a method
-	// Return Raft
-
-	// Unimplemented:
-	// What to do if you are the leader
-	// Changing from candidate to follower if received AppendEntries RPC
+	rf.HeartBeatReceived = false
+	rf.NumOfVotes = 0
+	go func() {
+		for {
+			switch rf.Status {
+			case FOLLOWER:
+				// Set receivedheartbeat to false
+				rf.mu.Lock()
+				rf.HeartBeatReceived = false
+				rf.mu.Unlock()
+				// Wait until timeout
+				time.Sleep(time.Duration(300 + rand.Intn(200)) * time.Millisecond)
+				// Check if we've received a heartbeat
+				// If yes, whoop dee doo
+				// If no, become candidate
+				rf.mu.Lock()
+				if !rf.HeartBeatReceived {
+					rf.Status = CANDIDATE
+				}
+				rf.mu.Unlock()
+			case CANDIDATE:
+				// Election, oh dear
+				// Increment term
+				rf.mu.Lock()
+				rf.CurrentTerm += 1
+				// vote for self
+				rf.NumOfVotes = 1
+				rf.VotedFor = rf.me
+				rf.VotedForTerm = rf.CurrentTerm
+				rf.mu.Unlock()
+				// Start election timer
+				timeout := make(chan bool)
+				go func() {
+					time.Sleep(time.Duration(300 + rand.Intn(100)) * time.Millisecond)
+					timeout <- false //timeout
+				}()
+				// Make our requestvotearg
+				
+				// Send requestvote to everyone
+				for i:= 0; i < len(rf.peers); i++ {
+					if i != rf.me {
+						Votearg := RequestVoteArgs{
+							Term: rf.CurrentTerm,
+							CandidateID: rf.me,
+							LastLogIndex: rf.GetLastLogIndex(),
+							LastLogTerm: rf.GetLastLogTerm(),
+						}
+						VoteReply := RequestVoteReply{Vote: false, Term: rf.CurrentTerm}
+						go rf.sendRequestVote(i, &Votearg, &VoteReply)
+					}
+				}
+				Loop:
+					for {
+						select {
+						case <- timeout:
+							//fmt.Println("Timeout")
+							break Loop
+						default:
+							rf.mu.Lock()
+							if rf.Status == FOLLOWER { // If we received a heartbeat
+								rf.mu.Unlock()
+								break Loop
+							}
+							if rf.NumOfVotes * 2 > len(rf.peers) {
+								// What if we pause here?
+								// IF someone else started a new election and we voted for them, our term is oudated
+								// NO ONE could have become a leader in this current term
+								// THEREFORE it is safe make ourself the Supreme Chancellor of the Republic
+								rf.Status = LEADER
+								//fmt.Println("Just assigned",rf.me,"to LEADER")
+								rf.mu.Unlock()
+								break Loop
+							}
+							rf.mu.Unlock()
+						}
+					}
+				// Either:
+					// Timeout
+					// Check if became follower (maybe)
+					// Get majority and become leader
+			case LEADER:
+				// Send heartbeats to all followers
+				//fmt.Println("I'm the leader!")
+				for i := 0; i < len(rf.peers); i++ {
+					if i != rf.me {
+						heartbeat := AppendEntries{Command: nil, Term: rf.CurrentTerm}
+						reply := AppendReply{}
+						go rf.sendHeartBeat(i, &heartbeat, &reply)
+					}
+				}
+				time.Sleep(150 * time.Millisecond)
+			}
+			// Set receivedheratbeat to false here?
+		}
+		//fmt.Println("Should never reach end of infinite loop")
+	}()
 
 	// Your initialization code here (3A, 3B, 3C).
 
