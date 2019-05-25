@@ -150,7 +150,7 @@ func (rf *Raft) readPersist(data []byte) {
 //
 type RequestVoteArgs struct {
 	// Your data here (3A, 3B).
-	Term int
+	VoteTerm int
 	CandidateID int
 	LastLogIndex int
 	LastLogTerm int
@@ -163,7 +163,7 @@ type RequestVoteArgs struct {
 type RequestVoteReply struct {
 	// Your data here (3A).
 	Vote bool
-	Term int
+	ReplyTerm int
 }
 
 //
@@ -176,17 +176,17 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// fmt.Println(rf.me,"has received a request from",args.CandidateID)
 	rf.mu.Lock()
 	// Cannot get a heartbeat... will have to think about this
-	if args.Term >= rf.CurrentTerm && args.Term > rf.VotedForTerm {
+	if args.VoteTerm >= rf.CurrentTerm && args.VoteTerm > rf.VotedForTerm {
 		// Check if candidate's log is as up to date as ours
 		if rf.GetLastLogIndex() <= args.LastLogIndex {
 			// Check then it has as many items
 			if rf.GetLastLogTerm() <= args.LastLogTerm {
 				// Set votedforterm to be this term of the request
 				// fmt.Println(rf.me,"is voting for",args.CandidateID)
-				rf.VotedForTerm = args.Term
+				rf.VotedForTerm = args.VoteTerm
 				rf.VotedFor = args.CandidateID
 				reply.Vote = true
-				reply.Term = args.Term
+				reply.ReplyTerm = rf.VotedForTerm
 			}
 		}
 	}
@@ -240,7 +240,7 @@ func (rf *Raft) HeartBeatReceiver(args *AppendEntries, reply *AppendReply) {
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	if reply.Vote {
+	if reply.Vote && reply.ReplyTerm == rf.CurrentTerm {
 		rf.mu.Lock()
 		rf.NumOfVotes += 1
 		rf.mu.Unlock()
@@ -353,12 +353,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				for i:= 0; i < len(rf.peers); i++ {
 					if i != rf.me {
 						Votearg := RequestVoteArgs{
-							Term: rf.CurrentTerm,
+							VoteTerm: rf.CurrentTerm,
 							CandidateID: rf.me,
 							LastLogIndex: rf.GetLastLogIndex(),
 							LastLogTerm: rf.GetLastLogTerm(),
 						}
-						VoteReply := RequestVoteReply{Vote: false, Term: rf.CurrentTerm}
+						VoteReply := RequestVoteReply{Vote: false} // 
 						go rf.sendRequestVote(i, &Votearg, &VoteReply)
 					}
 				}
