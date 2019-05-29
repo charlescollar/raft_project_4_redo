@@ -74,6 +74,11 @@ type Raft struct {
 type AppendEntries struct{
 	Command interface{}
 	Term int
+	leaderID int
+	PrevLogIndex int
+	PrevLogTerm int
+	//Entries []
+	LeaderCommit int
 }
 
 type AppendReply struct {
@@ -274,6 +279,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (3B).
+	//if we are leader
+	//build an append entries struct, commad is the entry
+	//send that to everyone, using the appendentries RPC handler
 
 	return index, term, isLeader
 }
