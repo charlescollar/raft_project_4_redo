@@ -21,7 +21,7 @@ import "sync"
 import "labrpc"
 import "time"
 import "math/rand"
-// import "fmt"
+import "fmt"
 
 // import "bytes"
 // import "labgob"
@@ -55,6 +55,7 @@ type Raft struct {
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
 	me        int                 // this peer's index into peers[]
+	ApplyCh chan ApplyMsg
 
 
 	Log       []Command
@@ -66,6 +67,7 @@ type Raft struct {
 	NumOfVotes int
 
 	CommitIndex int
+	SentCommit int
 	NextIndex []int
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
@@ -95,10 +97,10 @@ type AppendReply struct {
 }
 
 func(rf *Raft) GetLastLogIndex() (int){
-	if len(rf.Log) == 0{
+	if len(rf.Log) == 0 {
 		return 0
 	} else {
-		index := len(rf.Log) - 1 
+		index := len(rf.Log) - 1
 		return index
 	}
 }
@@ -219,6 +221,7 @@ func (rf *Raft) AppendEntryReceiver(args *AppendEntries, reply *AppendReply) {
 	// Check that term of heartbeat is >= own term
 	// fmt.Println("Received Heart Beat")
 	rf.mu.Lock()
+	reply.Success = true
 	if args.Term >= rf.CurrentTerm {
 		// Change status to follower
 		rf.Status = FOLLOWER
@@ -226,14 +229,17 @@ func (rf *Raft) AppendEntryReceiver(args *AppendEntries, reply *AppendReply) {
 		rf.HeartBeatReceived = true
 		// Change term to heartbeat's
 		rf.CurrentTerm = args.Term
-		if len(rf.Log) > args.PrevLogIndex { // Reply false if log doesn't contain an entry at prevLogIndex
+		if len(rf.Log) > args.PrevLogIndex { // Our log is too long, need to delete things
+			fmt.Println("We think our log is too long")
 			if rf.Log[args.PrevLogIndex].Term != args.PrevLogTerm { // delete the existing entry and all that follow it
-				// TO DO (DELETE ENTRIES > PREVLOGINDEX)
+				rf.Log = rf.Log[:args.PrevLogIndex-1]
 			}
 			// Append any new entries not already in log (??? need to check if in it already ???)
 			// Probably can just append all entries
-
-				// TO DO (ADD ALL ENTRIES IN ARGS)
+			for len(args.Entries) > 0 {
+				rf.Log = append(rf.Log, args.Entries[0])
+				args.Entries = args.Entries[:len(args.Entries)-1]
+			}
 
 			// Adjust commit level
 			if args.LeaderCommit > rf.CommitIndex {
@@ -243,10 +249,22 @@ func (rf *Raft) AppendEntryReceiver(args *AppendEntries, reply *AppendReply) {
 					rf.CommitIndex = args.LeaderCommit
 				}
 			}
+		} else if len(rf.Log) < args.PrevLogIndex { // Our log is too short, need to move back a step
+			fmt.Println("We think our log is too short")
+			reply.Success = false
+		} else { // Log is juuuuuuuusst right, check to see if term matches.
+			if len(rf.Log) > args.PrevLogIndex {
+				if rf.Log[args.PrevLogIndex].Term != args.PrevLogTerm {
+					rf.Log = rf.Log[:args.PrevLogIndex-1]
+					reply.Success = false
+				}
+			}
 		}
+		
 	}
-	// Reply false if args.Term < rf.CurrentTerm
-
+	if !reply.Success {
+		fmt.Println("Replying false")
+	}
 	rf.mu.Unlock()
 }
 
@@ -292,10 +310,46 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 func (rf *Raft) sendAppendEntry(server int, args *AppendEntries, reply *AppendReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntryReceiver", args, reply)
-	// If reply.Success is false, need to catch up
-	// Catchup will probably happen here, since each of these are in parallel
-	// ...
-	// TO DO
+	for !ok && rf.Status == LEADER {
+		reply := AppendReply{}
+		ok = rf.peers[server].Call("Raft.AppendEntryReceiver", args, &reply)
+	}
+	for !reply.Success || rf.NextIndex[server] < rf.GetLastLogIndex() + 1 { // If reply.Success is false, need to catch up
+		if !reply.Success {
+			fmt.Println(rf.NextIndex[server])
+			rf.NextIndex[server] -= 1
+		} else {
+			rf.NextIndex[server] += len(args.Entries)
+			count := 0
+			for i := 0; i < len(rf.peers); i++ {
+				if rf.NextIndex[i] >= rf.NextIndex[server] {
+					count += 1
+				}
+				if count*2 > len(rf.peers) {
+					// Increment our commit level and break
+					rf.CommitIndex += 1
+				}
+			}
+		}
+		if rf.NextIndex[server] < 1 {
+			break;
+		}
+		if rf.NextIndex[server] < rf.GetLastLogIndex() + 1 {
+			args := AppendEntries{
+				Entries: []Command{rf.Log[rf.NextIndex[server]-1]},
+				// Can make this the entire log-to-date
+				Term: rf.CurrentTerm,
+				LeaderCommit: rf.CommitIndex,
+				// LeaderID: rf.me,
+				PrevLogIndex: rf.NextIndex[server]-1,
+				PrevLogTerm: rf.Log[rf.NextIndex[server]-1].Term,
+			}
+			for !ok {
+				reply := AppendReply{}
+				ok = rf.peers[server].Call("Raft.AppendEntryReceiver", args, &reply)
+			}
+		}
+	}
 	return ok
 }
 
@@ -386,7 +440,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.NumOfVotes = 0
 
 	rf.CommitIndex = 0
+	rf.SentCommit = 0
 	rf.NextIndex = make([]int, len(rf.peers))
+	rf.ApplyCh = applyCh
 
 	go func() {
 		for {
@@ -469,6 +525,18 @@ func Make(peers []*labrpc.ClientEnd, me int,
 			case LEADER:
 				// Send heartbeats to all followers
 				//fmt.Println("I'm the leader!")
+				// if commitIndex is higher ??? send stuff down chan
+				rf.mu.Lock()
+				for rf.SentCommit < rf.CommitIndex {
+					rf.SentCommit += 1
+					msg := ApplyMsg{
+						CommandValid: true,
+						Command: rf.Log[rf.SentCommit].Command,
+						CommandIndex: rf.SentCommit,
+					}
+					rf.ApplyCh <- msg
+				}
+				rf.mu.Unlock()
 				for i := 0; i < len(rf.peers); i++ {
 					if i != rf.me && rf.NextIndex[i] == rf.GetLastLogIndex()+1 {
 						heartbeat := AppendEntries{
