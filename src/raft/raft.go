@@ -57,32 +57,41 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 
 
-	Log       []AppendEntries
+	Log       []Command
 	Status    int   //0 if you are a leader, 1 if you are follower, 2 if you are candidate (see consts)
 	VotedFor  int   //who you voted for. null if none.
 	VotedForTerm int //term that you last voted in
 	CurrentTerm int 
 	HeartBeatReceived bool // If false when the heartbeatlistener times out, start election
 	NumOfVotes int
+
+	CommitIndex int
+	NextIndex []int
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
 }
 
-//if command is nil, it's a hearbeat, else it's a log entry
-type AppendEntries struct{
+type Command struct { // For our individual command
 	Command interface{}
 	Term int
-	leaderID int
+}
+
+//if command is nil, it's a hearbeat, else it's a log entry
+type AppendEntries struct{
+	//Command interface{}
+	Term int
+	//LeaderID int
 	PrevLogIndex int
 	PrevLogTerm int
-	//Entries []
+	Entries []Command
 	LeaderCommit int
 }
 
 type AppendReply struct {
-
+	Term int
+	Success bool
 }
 
 func(rf *Raft) GetLastLogIndex() (int){
@@ -93,6 +102,7 @@ func(rf *Raft) GetLastLogIndex() (int){
 		return index
 	}
 }
+
 func(rf *Raft) GetLastLogTerm() (int){
 	if len(rf.Log) == 0 {
 		//if log is empty, our last log term is 0
@@ -109,6 +119,12 @@ func(rf *Raft) GetLastLogTerm() (int){
 func (rf *Raft) GetState() (int, bool) {
 	// Your code here (3A).
 	return rf.CurrentTerm, rf.Status == LEADER
+}
+
+func (rf *Raft) AddEntry(command interface{}, term int) {
+	//rf.mu.Lock()
+	// Already locked whenever reaching this point
+	rf.Log = append(rf.Log, Command{Command: command, Term: term})
 }
 
 //
@@ -198,7 +214,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Unlock()
 }
 
-func (rf *Raft) HeartBeatReceiver(args *AppendEntries, reply *AppendReply) {
+func (rf *Raft) AppendEntryReceiver(args *AppendEntries, reply *AppendReply) {
 	// Your code here 3A
 	// Check that term of heartbeat is >= own term
 	// fmt.Println("Received Heart Beat")
@@ -210,7 +226,27 @@ func (rf *Raft) HeartBeatReceiver(args *AppendEntries, reply *AppendReply) {
 		rf.HeartBeatReceived = true
 		// Change term to heartbeat's
 		rf.CurrentTerm = args.Term
+		if len(rf.Log) > args.PrevLogIndex { // Reply false if log doesn't contain an entry at prevLogIndex
+			if rf.Log[args.PrevLogIndex].Term != args.PrevLogTerm { // delete the existing entry and all that follow it
+				// TO DO (DELETE ENTRIES > PREVLOGINDEX)
+			}
+			// Append any new entries not already in log (??? need to check if in it already ???)
+			// Probably can just append all entries
+
+				// TO DO (ADD ALL ENTRIES IN ARGS)
+
+			// Adjust commit level
+			if args.LeaderCommit > rf.CommitIndex {
+				if args.LeaderCommit > rf.GetLastLogIndex() {
+					rf.CommitIndex = rf.GetLastLogIndex()
+				} else {
+					rf.CommitIndex = args.LeaderCommit
+				}
+			}
+		}
 	}
+	// Reply false if args.Term < rf.CurrentTerm
+
 	rf.mu.Unlock()
 }
 
@@ -254,8 +290,12 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 }
 
 
-func (rf *Raft) sendHeartBeat(server int, args *AppendEntries, reply *AppendReply) bool {
-	ok := rf.peers[server].Call("Raft.HeartBeatReceiver", args, reply)
+func (rf *Raft) sendAppendEntry(server int, args *AppendEntries, reply *AppendReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntryReceiver", args, reply)
+	// If reply.Success is false, need to catch up
+	// Catchup will probably happen here, since each of these are in parallel
+	// ...
+	// TO DO
 	return ok
 }
 
@@ -279,10 +319,33 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (3B).
-	//if we are leader
-	//build an append entries struct, commad is the entry
-	//send that to everyone, using the appendentries RPC handler
-
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.Status != LEADER {
+		return rf.GetLastLogIndex()+1,rf.CurrentTerm,false
+	}
+	// if we are leader
+	// Add entry to our log
+	rf.AddEntry(command,rf.CurrentTerm)
+	// Create an array for Entries argument
+	entry := []Command{Command{Command:command,Term:rf.CurrentTerm}}
+	// build an append entries struct, command is the entry
+	args := AppendEntries{
+		Term: rf.CurrentTerm,
+		//LeaderID: rf.me,
+		PrevLogIndex: rf.GetLastLogIndex(),
+		PrevLogTerm: rf.GetLastLogTerm(),
+		Entries: entry,
+		LeaderCommit: rf.CommitIndex,
+	}
+	// send that to everyone, using the appendentries RPC handler
+	// to everyone that is ***already caught up***
+	for i:=0; i< len(rf.peers); i++ {
+		if i != rf.me && rf.NextIndex[i] == rf.GetLastLogIndex() {
+			reply := AppendReply{}
+			go rf.sendAppendEntry(i, &args, &reply)
+		}
+	}
 	return index, term, isLeader
 }
 
@@ -314,13 +377,17 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
-	rf.Log = make([]AppendEntries, 0)
+	rf.Log = make([]Command, 0)
 	rf.Status = FOLLOWER
 	rf.VotedFor = -1
 	rf.VotedForTerm = -1
 	rf.CurrentTerm = 0
 	rf.HeartBeatReceived = false
 	rf.NumOfVotes = 0
+
+	rf.CommitIndex = 0
+	rf.NextIndex = make([]int, len(rf.peers))
+
 	go func() {
 		for {
 			switch rf.Status {
@@ -388,25 +455,34 @@ func Make(peers []*labrpc.ClientEnd, me int,
 								// NO ONE could have become a leader in this current term
 								// THEREFORE it is safe make ourself the Supreme Chancellor of the Republic
 								rf.Status = LEADER
-								//fmt.Println("Just assigned",rf.me,"to LEADER")
+								// Set nextIndex for each follower to be the index just after
+								// the last one in our log
+								for i:= 0; i < len(rf.peers); i++ {
+									rf.NextIndex[i] = rf.GetLastLogIndex() + 1
+								}
 								rf.mu.Unlock()
 								break Loop
 							}
 							rf.mu.Unlock()
 						}
 					}
-				// Either:
-					// Timeout
-					// Check if became follower (maybe)
-					// Get majority and become leader
 			case LEADER:
 				// Send heartbeats to all followers
 				//fmt.Println("I'm the leader!")
 				for i := 0; i < len(rf.peers); i++ {
-					if i != rf.me {
-						heartbeat := AppendEntries{Command: nil, Term: rf.CurrentTerm}
+					if i != rf.me && rf.NextIndex[i] == rf.GetLastLogIndex()+1 {
+						heartbeat := AppendEntries{
+							Entries: make([]Command, 0), 
+							Term: rf.CurrentTerm,
+							LeaderCommit: rf.CommitIndex,
+							// LeaderID: rf.me,
+							PrevLogIndex: rf.GetLastLogIndex(),
+							PrevLogTerm: rf.GetLastLogTerm(),
+						}
 						reply := AppendReply{}
-						go rf.sendHeartBeat(i, &heartbeat, &reply)
+						go rf.sendAppendEntry(i, &heartbeat, &reply)
+						// If reply's Success is false,
+						// start catchup?
 					}
 				}
 				time.Sleep(150 * time.Millisecond)
