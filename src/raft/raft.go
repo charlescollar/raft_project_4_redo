@@ -68,11 +68,16 @@ type Raft struct {
 
 	CommitIndex int
 	SentCommit int
-	NextIndex []int
+	NextIndex []NextIndex
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+}
+
+type NextIndex struct {
+	Index int
+	mu sync.Mutex
 }
 
 type Command struct { // For our individual command
@@ -223,6 +228,7 @@ func (rf *Raft) AppendEntryReceiver(args *AppendEntries, reply *AppendReply) {
 	rf.mu.Lock()
 	reply.Success = true
 	if args.Term >= rf.CurrentTerm {
+		reply.Term = args.Term
 		// Change status to follower
 		rf.Status = FOLLOWER
 		// Change hearbeatreceived to true
@@ -239,6 +245,7 @@ func (rf *Raft) AppendEntryReceiver(args *AppendEntries, reply *AppendReply) {
 			for len(args.Entries) > 0 {
 				rf.Log = append(rf.Log, args.Entries[0])
 				args.Entries = args.Entries[:len(args.Entries)-1]
+				fmt.Println(len(rf.Log))
 			}
 
 			// Adjust commit level
@@ -249,6 +256,7 @@ func (rf *Raft) AppendEntryReceiver(args *AppendEntries, reply *AppendReply) {
 					rf.CommitIndex = args.LeaderCommit
 				}
 			}
+			reply.Success = false
 		} else if len(rf.Log) < args.PrevLogIndex { // Our log is too short, need to move back a step
 			fmt.Println("We think our log is too short")
 			reply.Success = false
@@ -259,6 +267,11 @@ func (rf *Raft) AppendEntryReceiver(args *AppendEntries, reply *AppendReply) {
 					reply.Success = false
 				}
 			}
+		}
+		for len(args.Entries) > 0 {
+			rf.Log = append(rf.Log, args.Entries[0])
+			args.Entries = args.Entries[:len(args.Entries)-1]
+			fmt.Println(len(rf.Log))
 		}
 		
 	}
@@ -309,47 +322,50 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 
 func (rf *Raft) sendAppendEntry(server int, args *AppendEntries, reply *AppendReply) bool {
+	rf.NextIndex[server].mu.Lock()
 	ok := rf.peers[server].Call("Raft.AppendEntryReceiver", args, reply)
 	for !ok && rf.Status == LEADER {
-		reply := AppendReply{}
-		ok = rf.peers[server].Call("Raft.AppendEntryReceiver", args, &reply)
+		//reply = &AppendReply{Success:true}
+		ok = rf.peers[server].Call("Raft.AppendEntryReceiver", args, reply)
 	}
-	for !reply.Success || rf.NextIndex[server] < rf.GetLastLogIndex() + 1 { // If reply.Success is false, need to catch up
+	for !reply.Success || rf.NextIndex[server].Index < rf.GetLastLogIndex() + 1 { // If reply.Success is false, need to catch up
 		if !reply.Success {
-			fmt.Println(rf.NextIndex[server])
-			rf.NextIndex[server] -= 1
+			rf.NextIndex[server].Index -= 1
+			if (rf.NextIndex[server].Index < 0) {
+				fmt.Println("ohhhhh shit")
+			}
 		} else {
-			rf.NextIndex[server] += len(args.Entries)
+			rf.NextIndex[server].Index += len(args.Entries)
 			count := 0
 			for i := 0; i < len(rf.peers); i++ {
-				if rf.NextIndex[i] >= rf.NextIndex[server] {
+				if rf.NextIndex[i].Index >= rf.NextIndex[server].Index {
 					count += 1
 				}
 				if count*2 > len(rf.peers) {
 					// Increment our commit level and break
-					rf.CommitIndex += 1
+					rf.CommitIndex = rf.NextIndex[i].Index
 				}
 			}
 		}
-		if rf.NextIndex[server] < 1 {
-			break;
-		}
-		if rf.NextIndex[server] < rf.GetLastLogIndex() + 1 {
+		if rf.NextIndex[server].Index < rf.GetLastLogIndex() {
+			fmt.Println(len(rf.Log),rf.NextIndex[server].Index)
 			args := AppendEntries{
-				Entries: []Command{rf.Log[rf.NextIndex[server]-1]},
+				Entries: []Command{rf.Log[rf.NextIndex[server].Index]},
 				// Can make this the entire log-to-date
 				Term: rf.CurrentTerm,
 				LeaderCommit: rf.CommitIndex,
 				// LeaderID: rf.me,
-				PrevLogIndex: rf.NextIndex[server]-1,
-				PrevLogTerm: rf.Log[rf.NextIndex[server]-1].Term,
+				PrevLogIndex: rf.NextIndex[server].Index,
+				PrevLogTerm: rf.Log[rf.NextIndex[server].Index].Term,
 			}
-			for !ok {
-				reply := AppendReply{}
-				ok = rf.peers[server].Call("Raft.AppendEntryReceiver", args, &reply)
+			ok = false
+			for !ok && rf.Status == LEADER {
+				//reply := AppendReply{}
+				ok = rf.peers[server].Call("Raft.AppendEntryReceiver", &args, &reply)
 			}
 		}
 	}
+	rf.NextIndex[server].mu.Unlock()
 	return ok
 }
 
@@ -371,13 +387,13 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
-
 	// Your code here (3B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.Status != LEADER {
 		return rf.GetLastLogIndex()+1,rf.CurrentTerm,false
 	}
+	fmt.Println("Started")
 	// if we are leader
 	// Add entry to our log
 	rf.AddEntry(command,rf.CurrentTerm)
@@ -394,12 +410,14 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}
 	// send that to everyone, using the appendentries RPC handler
 	// to everyone that is ***already caught up***
-	for i:=0; i< len(rf.peers); i++ {
-		if i != rf.me && rf.NextIndex[i] == rf.GetLastLogIndex() {
-			reply := AppendReply{}
-			go rf.sendAppendEntry(i, &args, &reply)
+	go func() {
+		for i:=0; i< len(rf.peers); i++ {
+			if i != rf.me && rf.NextIndex[i].Index == rf.GetLastLogIndex() {
+				reply := AppendReply{}
+				go rf.sendAppendEntry(i, &args, &reply)
+			}
 		}
-	}
+	}()
 	return index, term, isLeader
 }
 
@@ -441,7 +459,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.CommitIndex = 0
 	rf.SentCommit = 0
-	rf.NextIndex = make([]int, len(rf.peers))
+	rf.NextIndex = make([]NextIndex, len(rf.peers))
 	rf.ApplyCh = applyCh
 
 	go func() {
@@ -514,7 +532,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 								// Set nextIndex for each follower to be the index just after
 								// the last one in our log
 								for i:= 0; i < len(rf.peers); i++ {
-									rf.NextIndex[i] = rf.GetLastLogIndex() + 1
+									rf.NextIndex[i] = NextIndex{Index: rf.GetLastLogIndex() + 1}
 								}
 								rf.mu.Unlock()
 								break Loop
@@ -529,16 +547,17 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				rf.mu.Lock()
 				for rf.SentCommit < rf.CommitIndex {
 					rf.SentCommit += 1
+					fmt.Println(rf.CommitIndex)
 					msg := ApplyMsg{
 						CommandValid: true,
-						Command: rf.Log[rf.SentCommit].Command,
+						Command: rf.Log[rf.SentCommit-1].Command,
 						CommandIndex: rf.SentCommit,
 					}
 					rf.ApplyCh <- msg
 				}
 				rf.mu.Unlock()
 				for i := 0; i < len(rf.peers); i++ {
-					if i != rf.me && rf.NextIndex[i] == rf.GetLastLogIndex()+1 {
+					if i != rf.me && rf.NextIndex[i].Index == rf.GetLastLogIndex()+1 {
 						heartbeat := AppendEntries{
 							Entries: make([]Command, 0), 
 							Term: rf.CurrentTerm,
