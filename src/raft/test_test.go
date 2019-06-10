@@ -74,7 +74,6 @@ func TestReElection3A(t *testing.T) {
 	// if there's no quorum, no leader should
 	// be elected.
 	cfg.disconnect(leader2)
-	fmt.Println("Disconnected leader:",leader2)
 	cfg.disconnect((leader2 + 1) % servers)
 	time.Sleep(2 * RaftElectionTimeout)
 	cfg.checkNoLeader()
@@ -106,15 +105,14 @@ func TestBasicAgree3B(t *testing.T) {
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
-		fmt.Printf("\n\n*******Passed 3B.1.%v.1*******\n\n\n",index)
+		fmt.Printf("Passed 3B.1.%v.1\n",index)
 
 		xindex := cfg.one(index*100, servers, false)
 		if xindex != index {
 			t.Fatalf("got index %v but expected %v", xindex, index)
 		}
-		fmt.Printf("\n\n*******Passed 3B.1.%v.2*******\n\n\n",index)
+		fmt.Printf("Passed 3B.1.%v.2\n",index)
 	}
-	os.Exit(0)
 	cfg.end()
 }
 
@@ -126,27 +124,36 @@ func TestFailAgree3B(t *testing.T) {
 	cfg.begin("Test (3B): agreement despite follower disconnection")
 
 	cfg.one(101, servers, false)
+	fmt.Println("Passed 3B.2.1")
 
 	// follower network disconnection
 	leader := cfg.checkOneLeader()
+	fmt.Println("Passed 3B.2.2")
 	cfg.disconnect((leader + 1) % servers)
 
 	// agree despite one disconnected server?
 	cfg.one(102, servers-1, false)
+	fmt.Println("Passed 3B.2.3")
 	cfg.one(103, servers-1, false)
+	fmt.Println("Passed 3B.2.4")
 	time.Sleep(RaftElectionTimeout)
 	cfg.one(104, servers-1, false)
+	fmt.Println("Passed 3B.2.5")
 	cfg.one(105, servers-1, false)
+	fmt.Println("Passed 3B.2.6")
 
 	// re-connect
 	cfg.connect((leader + 1) % servers)
 
 	// agree with full set of servers?
 	cfg.one(106, servers, true)
+	fmt.Println("Passed 3B.2.7")
 	time.Sleep(RaftElectionTimeout)
 	cfg.one(107, servers, true)
+	fmt.Println("Passed 3B.2.8")
 
 	cfg.end()
+	os.Exit(0)
 }
 
 func TestFailNoAgree3B(t *testing.T) {
