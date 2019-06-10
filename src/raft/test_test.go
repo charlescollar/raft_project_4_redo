@@ -14,6 +14,7 @@ import "time"
 import "math/rand"
 import "sync/atomic"
 import "sync"
+import "os"
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
@@ -73,6 +74,7 @@ func TestReElection3A(t *testing.T) {
 	// if there's no quorum, no leader should
 	// be elected.
 	cfg.disconnect(leader2)
+	fmt.Println("Disconnected leader:",leader2)
 	cfg.disconnect((leader2 + 1) % servers)
 	time.Sleep(2 * RaftElectionTimeout)
 	cfg.checkNoLeader()
@@ -104,15 +106,15 @@ func TestBasicAgree3B(t *testing.T) {
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
-		fmt.Printf("Passed 3B.1.%v.1\n",index)
+		fmt.Printf("\n\n*******Passed 3B.1.%v.1*******\n\n\n",index)
 
 		xindex := cfg.one(index*100, servers, false)
 		if xindex != index {
 			t.Fatalf("got index %v but expected %v", xindex, index)
 		}
-		fmt.Printf("Passed 3B.1.%v.2\n",index)
+		fmt.Printf("\n\n*******Passed 3B.1.%v.2*******\n\n\n",index)
 	}
-
+	os.Exit(0)
 	cfg.end()
 }
 

@@ -452,8 +452,10 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				fmt.Println("\n\n***Config.go: nd =",nd,"and cmd1 =",cmd1)
 				if nd > 0 && nd >= expectedServers {
 					// committed
+					fmt.Println("\n\n***Config.go got a commited thing...")
 					if cmd2, ok := cmd1.(int); ok && cmd2 == cmd {
 						// and it was the command we submitted.
 						return index
