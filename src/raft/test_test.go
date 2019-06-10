@@ -164,9 +164,10 @@ func TestFailNoAgree3B(t *testing.T) {
 	cfg.begin("Test (3B): no agreement if too many followers disconnect")
 
 	cfg.one(10, servers, false)
-
+	fmt.Println("Passed 3B.3.1")
 	// 3 of 5 followers disconnect
 	leader := cfg.checkOneLeader()
+	fmt.Println("Passed 3B.3.2")
 	cfg.disconnect((leader + 1) % servers)
 	cfg.disconnect((leader + 2) % servers)
 	cfg.disconnect((leader + 3) % servers)
@@ -175,9 +176,11 @@ func TestFailNoAgree3B(t *testing.T) {
 	if ok != true {
 		t.Fatalf("leader rejected Start()")
 	}
+	fmt.Println("Passed 3B.3.3")
 	if index != 2 {
 		t.Fatalf("expected index 2, got %v", index)
 	}
+	fmt.Println("Passed 3B.3.4")
 
 	time.Sleep(2 * RaftElectionTimeout)
 
@@ -185,6 +188,7 @@ func TestFailNoAgree3B(t *testing.T) {
 	if n > 0 {
 		t.Fatalf("%v committed but no majority", n)
 	}
+	fmt.Println("Passed 3B.3.5")
 
 	// repair
 	cfg.connect((leader + 1) % servers)
@@ -194,15 +198,19 @@ func TestFailNoAgree3B(t *testing.T) {
 	// the disconnected majority may have chosen a leader from
 	// among their own ranks, forgetting index 2.
 	leader2 := cfg.checkOneLeader()
+	fmt.Println("Passed 3B.3.6")
 	index2, _, ok2 := cfg.rafts[leader2].Start(30)
 	if ok2 == false {
 		t.Fatalf("leader2 rejected Start()")
 	}
+	fmt.Println("Passed 3B.3.7")
 	if index2 < 2 || index2 > 3 {
 		t.Fatalf("unexpected index %v", index2)
 	}
+	fmt.Println("Passed 3B.3.8")
 
 	cfg.one(1000, servers, true)
+	fmt.Println("Passed 3B.3.9")
 
 	cfg.end()
 }
