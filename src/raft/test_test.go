@@ -25,7 +25,7 @@ func TestInitialElection3A(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3A): initial election")
+	cfg.begin("Test (3A): initial election: 3 tests")
 
 	// is a leader elected?
 	cfg.checkOneLeader()
@@ -55,7 +55,7 @@ func TestReElection3A(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3A): election after network failure")
+	cfg.begin("Test (3A): election after network failure 6 tests")
 
 	leader1 := cfg.checkOneLeader()
 	fmt.Println("Passed 3A.2.1")
@@ -97,7 +97,7 @@ func TestBasicAgree3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): basic agreement")
+	cfg.begin("Test (3B): basic agreement 6 tests")
 
 	iters := 3
 	for index := 1; index < iters+1; index++ {
@@ -121,7 +121,7 @@ func TestFailAgree3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): agreement despite follower disconnection")
+	cfg.begin("Test (3B): agreement despite follower disconnection 8 tests")
 
 	cfg.one(101, servers, false)
 	fmt.Println("Passed 3B.2.1")
@@ -161,7 +161,7 @@ func TestFailNoAgree3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): no agreement if too many followers disconnect")
+	cfg.begin("Test (3B): no agreement if too many followers disconnect: 9 tests")
 
 	cfg.one(10, servers, false)
 	fmt.Println("Passed 3B.3.1")
@@ -321,12 +321,14 @@ func TestRejoin3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): rejoin of partitioned leader")
+	cfg.begin("Test (3B): rejoin of partitioned leader: 6 tests")
 
 	cfg.one(101, servers, true)
+	fmt.Println("Passed 3B.5.1")
 
 	// leader network failure
 	leader1 := cfg.checkOneLeader()
+	fmt.Println("Passed 3B.5.2")
 	cfg.disconnect(leader1)
 
 	// make old leader try to agree on some entries
@@ -336,20 +338,24 @@ func TestRejoin3B(t *testing.T) {
 
 	// new leader commits, also for index=2
 	cfg.one(103, 2, true)
+	fmt.Println("Passed 3B.5.3")
 
 	// new leader network failure
 	leader2 := cfg.checkOneLeader()
+	fmt.Println("Passed 3B.5.4")
 	cfg.disconnect(leader2)
 
 	// old leader connected again
 	cfg.connect(leader1)
 
 	cfg.one(104, 2, true)
+	fmt.Println("Passed 3B.5.5")
 
 	// all together now
 	cfg.connect(leader2)
 
 	cfg.one(105, servers, true)
+	fmt.Println("Passed 3B.5.6")
 
 	cfg.end()
 }
@@ -359,12 +365,14 @@ func TestBackup3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): leader backs up quickly over incorrect follower logs")
+	cfg.begin("Test (3B): leader backs up quickly over incorrect follower logs: 6 tests")
 
 	cfg.one(rand.Int(), servers, true)
+	fmt.Println("Passed 3B.6.1")
 
 	// put leader and one follower in a partition
 	leader1 := cfg.checkOneLeader()
+	fmt.Println("Passed 3B.6.2")
 	cfg.disconnect((leader1 + 2) % servers)
 	cfg.disconnect((leader1 + 3) % servers)
 	cfg.disconnect((leader1 + 4) % servers)
@@ -388,9 +396,11 @@ func TestBackup3B(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg.one(rand.Int(), 3, true)
 	}
+	fmt.Println("Passed 3B.6.3")
 
 	// now another partitioned leader and one follower
 	leader2 := cfg.checkOneLeader()
+	fmt.Println("Passed 3B.6.4")
 	other := (leader1 + 2) % servers
 	if leader2 == other {
 		other = (leader2 + 1) % servers
@@ -416,12 +426,14 @@ func TestBackup3B(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg.one(rand.Int(), 3, true)
 	}
+	fmt.Println("Passed 3B.6.5")
 
 	// now everyone
 	for i := 0; i < servers; i++ {
 		cfg.connect(i)
 	}
 	cfg.one(rand.Int(), servers, true)
+	fmt.Println("Passed 3B.6.6")
 
 	cfg.end()
 }
