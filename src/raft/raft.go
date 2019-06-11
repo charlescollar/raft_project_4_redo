@@ -210,6 +210,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Check if term is equal to ours
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
+		fmt.Println(rf.me,"setting term to",rf.currentTerm)
 		rf.votedFor = -1
 	}
 	if args.Term == rf.currentTerm && rf.votedFor == -1 {
@@ -282,7 +283,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	// If our log is shorter...
 	rf.mu.Lock()
 	// reply false until we're at the base, or match
-	fmt.Println(rf.me,"Received heartbeat...")
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.currentLeader = args.Leader
@@ -293,6 +293,9 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 			rf.currentLeader = args.Leader
 		}
 		if rf.currentLeader == args.Leader {
+			if rf.status == LEADER {
+				fmt.Println(rf.me,"changed from leader to follower")
+			}
 			rf.status = FOLLOWER
 			reply.Term = rf.currentTerm
 			// if longer, cut off everythangggggg
@@ -306,8 +309,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 						args.Entries = args.Entries[1:len(args.Entries)]
 					}
 					// Found the base, give true
-					fmt.Println(rf.me,"adjusted committedentry, has log",rf.log)
-					fmt.Println(rf.me,"has term",rf.currentTerm,"and person who gave me log has term",args.Term)
 					rf.mu.Unlock()
 					reply.Success = INCREMENT
 					// Set our commit level to either our size or the commit level
@@ -335,7 +336,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 			reply.Success = OTHERFAILURE
 		}
 	} else {
-		fmt.Println(rf.me,"lol old leader from term",args.Term)
 		rf.mu.Unlock()
 		reply.Success = OTHERFAILURE
 	}
@@ -375,6 +375,8 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	if ok {
 		// If true, send a true down the chan
 		rf.voteChan <-Vote{Vote:reply.Vote,Term:reply.Term}
+	} else {
+		fmt.Println("Failed to send voterequest")
 	}
 	return ok
 }
@@ -389,14 +391,14 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 	rf.mu.Lock()
 	if ok {
 		// if replied false, decrement
-		if reply.Success == DECREMENT {
+		if reply.Success == DECREMENT && reply.Term == rf.currentTerm {
 			rf.nextIndex[server]--
-		} else if reply.Success == INCREMENT {
+		} else if reply.Success == INCREMENT && reply.Term == rf.currentTerm {
 			rf.entryReceived[server] = args.LastLogIndex + len(args.Entries)
 			rf.nextIndex[server] = rf.entryReceived[server]+1
 		}
 	} else {
-		fmt.Println(rf.me,"could not send appendEntry to",server)
+		fmt.Println("Failed to send heartbeat")
 	}
 	rf.mu.Unlock()
 	return ok
@@ -511,6 +513,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				case CANDIDATE:
 					// Increment term every time we send out votes
 					rf.currentTerm += 1
+					fmt.Println(rf.me,"is starting a new election with term",rf.currentTerm)
 					// i hAvE nO lEaDeR
 					rf.currentLeader = -1
 					// Set our vote count to 1
@@ -524,18 +527,20 @@ func Make(peers []*labrpc.ClientEnd, me int,
 						Term: rf.currentTerm,
 					}
 					// may need to send out votes after unlocking
-					rf.mu.Unlock()
 					for i := 0; i < len(rf.peers); i++ {
 						// Get all votes out before we unlock
 						// Network latency should be slower than this
-						reply := RequestVoteReply{}
-						go rf.sendRequestVote(i,&args,&reply)
+						if i != rf.me {
+							reply := RequestVoteReply{}
+							go rf.sendRequestVote(i,&args,&reply)
+						}
 					}
+					rf.mu.Unlock()
 					// Wait for votes, or timeout
 					Loop:
 					for {
 						select {
-							case <-time.After(time.Duration(rand.Intn(100) + 300) * time.Millisecond):
+							case <-time.After(time.Duration(rand.Intn(100) + 700) * time.Millisecond):
 								//timeout, break and try again
 								//fmt.Println(rf.me,"Timeout, try again")
 								break Loop
