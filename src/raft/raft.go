@@ -205,7 +205,7 @@ type AppendEntryReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 	rf.mu.Lock() // Doesn't happen often, can lock for full time
-	fmt.Println(rf.me,"Locking in vote")
+	//fmt.Println(rf.me,"Locking in vote")
 	//defer rf.mu.Unlock() // Different return times
 	// Check if term is equal to ours
 	if args.Term > rf.currentTerm {
@@ -218,23 +218,22 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		if rf.getLastLogIndex() <= args.LastLogIndex {
 			// Check to see if args last log term is >=
 			if rf.getLastLogTerm() <= args.LastLogTerm {
-				// if rf.status == LEADER {
-				// 	rf.status = FOLLOWER
-				// }
 				// Grant vote
 				rf.votedFor = args.CandidateID
 				reply.Vote = true
-				rf.currentTerm = args.Term
+				//rf.currentTerm = args.Term
 				reply.Term = rf.currentTerm
-				fmt.Println(rf.me,"unlocking from vote true")
+				fmt.Println(rf.me,"granted vote to",args.CandidateID)
+				//fmt.Println(rf.me,"unlocking from vote true")
 				rf.mu.Unlock()
 				return
 			}
 		}
 	}
+	fmt.Println(rf.me,"did not grant vote to",args.CandidateID)
 	reply.Vote = false
 	reply.Term = rf.currentTerm
-	fmt.Println(rf.me,"unlocking from vote false")
+	//fmt.Println(rf.me,"unlocking from vote false")
 	rf.mu.Unlock()
 }
 
@@ -283,13 +282,13 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 	// If our log is shorter...
 	rf.mu.Lock()
 	// reply false until we're at the base, or match
+	fmt.Println(rf.me,"Received heartbeat...")
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.currentLeader = args.Leader
 	}
 	//fmt.Println("Receiving appendentry in",rf.me)
 	if args.Term == rf.currentTerm {
-
 		if rf.currentLeader == -1 { // New heartbeat, set leader
 			rf.currentLeader = args.Leader
 		}
@@ -307,35 +306,36 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 						args.Entries = args.Entries[1:len(args.Entries)]
 					}
 					// Found the base, give true
+					fmt.Println(rf.me,"adjusted committedentry, has log",rf.log)
+					fmt.Println(rf.me,"has term",rf.currentTerm,"and person who gave me log has term",args.Term)
 					rf.mu.Unlock()
 					reply.Success = INCREMENT
 					// Set our commit level to either our size or the commit level
 					//fmt.Println(rf.me,"with committedEntry",rf.committedEntry,"and lastlogindex",rf.getLastLogIndex(),"received args with commitLevel",args.CommitLevel)
 					
-					if rf.committedEntry < args.CommitLevel && args.CommitLevel <= rf.getLastLogIndex() {
-						rf.committedEntry = args.CommitLevel
-					} else if rf.committedEntry < args.CommitLevel && args.CommitLevel > rf.getLastLogIndex() {
-						rf.committedEntry = rf.getLastLogIndex()
+					if rf.committedEntry < args.CommitLevel {
+						rf.committedEntry = args.CommitLevel // Guaranteed to be a real thing
 					}
 				} else { // Case of not matching
 					rf.log = rf.log[:len(rf.log)-1]
-					fmt.Println(rf.me,"unlocking in AppendEntry")
+					//fmt.Println(rf.me,"unlocking in AppendEntry")
 					rf.mu.Unlock()
 					reply.Success = DECREMENT
 				}
 			} else { // Case of too short
-				fmt.Println(rf.me,"unlocking in AppendEntry")
+				//fmt.Println(rf.me,"unlocking in AppendEntry")
 				rf.mu.Unlock()
 				reply.Success = DECREMENT
 			}
+			fmt.Println(rf.me,"received heartbeat")
 			rf.heartBeatChan <- true
 		} else {
-			fmt.Println(rf.me,"unlocking in AppendEntry")
+			//fmt.Println(rf.me,"unlocking in AppendEntry")
 			rf.mu.Unlock()
 			reply.Success = OTHERFAILURE
 		}
 	} else {
-		fmt.Println(rf.me,"unlocking in AppendEntry")
+		fmt.Println(rf.me,"lol old leader from term",args.Term)
 		rf.mu.Unlock()
 		reply.Success = OTHERFAILURE
 	}
@@ -396,7 +396,7 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 			rf.nextIndex[server] = rf.entryReceived[server]+1
 		}
 	} else {
-		//fmt.Println("Could not send appendEntry")
+		fmt.Println(rf.me,"could not send appendEntry to",server)
 	}
 	rf.mu.Unlock()
 	return ok
@@ -537,7 +537,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 						select {
 							case <-time.After(time.Duration(rand.Intn(100) + 300) * time.Millisecond):
 								//timeout, break and try again
-								fmt.Println(rf.me,"Timeout, try again")
+								//fmt.Println(rf.me,"Timeout, try again")
 								break Loop
 							case <-rf.heartBeatChan:
 								// Got a heartbeat, become follower
@@ -560,6 +560,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 											rf.nextIndex[i] = rf.getLastLogIndex()+1
 											rf.entryReceived[i] = -1
 										}
+										fmt.Println(rf.me,"became leader")
 										rf.mu.Unlock()
 										break Loop
 									}
