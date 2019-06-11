@@ -22,7 +22,7 @@ import (
 	"labrpc"
     "time"
     "math/rand"
-    "fmt"
+    //"fmt"
 )
 
 const LEADER = 2
@@ -210,28 +210,23 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Check if term is equal to ours
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
-		fmt.Println(rf.me,"setting term to",rf.currentTerm)
 		rf.votedFor = -1
 	}
-	if args.Term == rf.currentTerm && rf.votedFor == -1 {
+	if args.Term > rf.currentTerm || (args.Term == rf.currentTerm && (rf.votedFor == args.CandidateID || rf.votedFor == -1)) {
 		// Check if we have not voted for someone this term
-		// Check if LastLogIndex is >= ours (true)
-		if rf.getLastLogIndex() <= args.LastLogIndex {
-			// Check to see if args last log term is >=
-			if rf.getLastLogTerm() <= args.LastLogTerm {
+		if rf.getLastLogTerm() <= args.LastLogTerm {
+			if rf.getLastLogIndex() <= args.LastLogIndex || rf.getLastLogTerm() < args.LastLogTerm {
 				// Grant vote
 				rf.votedFor = args.CandidateID
 				reply.Vote = true
-				//rf.currentTerm = args.Term
+				rf.currentTerm = args.Term
 				reply.Term = rf.currentTerm
-				fmt.Println(rf.me,"granted vote to",args.CandidateID)
 				//fmt.Println(rf.me,"unlocking from vote true")
 				rf.mu.Unlock()
 				return
 			}
 		}
 	}
-	fmt.Println(rf.me,"did not grant vote to",args.CandidateID)
 	reply.Vote = false
 	reply.Term = rf.currentTerm
 	//fmt.Println(rf.me,"unlocking from vote false")
@@ -293,13 +288,14 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 			rf.currentLeader = args.Leader
 		}
 		if rf.currentLeader == args.Leader {
-			if rf.status == LEADER {
-				fmt.Println(rf.me,"changed from leader to follower")
-			}
 			rf.status = FOLLOWER
 			reply.Term = rf.currentTerm
 			// if longer, cut off everythangggggg
-			rf.log = rf.log[:args.LastLogIndex+1]
+			if len(rf.log) - 1 > args.LastLogIndex {
+				rf.log = rf.log[:args.LastLogIndex+1]
+				//fmt.Println(rf.me,"is cutting off the end of its log of length",len(rf.log),"to length",args.LastLogIndex)
+			}
+			
 			if rf.getLastLogIndex() == args.LastLogIndex {
 			// If our log is correct length
 				if rf.getLastLogTerm() == args.LastLogTerm { // Case of correct
@@ -309,7 +305,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 						args.Entries = args.Entries[1:len(args.Entries)]
 					}
 					// Found the base, give true
-					rf.mu.Unlock()
 					reply.Success = INCREMENT
 					// Set our commit level to either our size or the commit level
 					//fmt.Println(rf.me,"with committedEntry",rf.committedEntry,"and lastlogindex",rf.getLastLogIndex(),"received args with commitLevel",args.CommitLevel)
@@ -317,6 +312,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 					if rf.committedEntry < args.CommitLevel {
 						rf.committedEntry = args.CommitLevel // Guaranteed to be a real thing
 					}
+					rf.mu.Unlock()
 				} else { // Case of not matching
 					rf.log = rf.log[:len(rf.log)-1]
 					//fmt.Println(rf.me,"unlocking in AppendEntry")
@@ -328,7 +324,6 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 				rf.mu.Unlock()
 				reply.Success = DECREMENT
 			}
-			fmt.Println(rf.me,"received heartbeat")
 			rf.heartBeatChan <- true
 		} else {
 			//fmt.Println(rf.me,"unlocking in AppendEntry")
@@ -376,7 +371,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		// If true, send a true down the chan
 		rf.voteChan <-Vote{Vote:reply.Vote,Term:reply.Term}
 	} else {
-		fmt.Println("Failed to send voterequest")
 	}
 	return ok
 }
@@ -398,7 +392,6 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 			rf.nextIndex[server] = rf.entryReceived[server]+1
 		}
 	} else {
-		fmt.Println("Failed to send heartbeat")
 	}
 	rf.mu.Unlock()
 	return ok
@@ -513,7 +506,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 				case CANDIDATE:
 					// Increment term every time we send out votes
 					rf.currentTerm += 1
-					fmt.Println(rf.me,"is starting a new election with term",rf.currentTerm)
 					// i hAvE nO lEaDeR
 					rf.currentLeader = -1
 					// Set our vote count to 1
@@ -540,7 +532,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					Loop:
 					for {
 						select {
-							case <-time.After(time.Duration(rand.Intn(100) + 700) * time.Millisecond):
+							case <-time.After(time.Duration(rand.Intn(300) + 700) * time.Millisecond):
 								//timeout, break and try again
 								//fmt.Println(rf.me,"Timeout, try again")
 								break Loop
@@ -565,7 +557,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 											rf.nextIndex[i] = rf.getLastLogIndex()+1
 											rf.entryReceived[i] = -1
 										}
-										fmt.Println(rf.me,"became leader")
 										rf.mu.Unlock()
 										break Loop
 									}

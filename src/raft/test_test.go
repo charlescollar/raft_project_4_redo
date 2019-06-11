@@ -95,9 +95,7 @@ func TestReElection3A(t *testing.T) {
 func TestBasicAgree3B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
-	cfg.end()
 	defer cfg.cleanup()
-	return
 	cfg.begin("Test (3B): basic agreement 6 tests")
 
 	iters := 3
@@ -120,9 +118,7 @@ func TestBasicAgree3B(t *testing.T) {
 func TestFailAgree3B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
-	cfg.end()
 	defer cfg.cleanup()
-	return
 
 	cfg.begin("Test (3B): agreement despite follower disconnection 8 tests")
 
@@ -162,9 +158,7 @@ func TestFailAgree3B(t *testing.T) {
 func TestFailNoAgree3B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
-	cfg.end()
 	defer cfg.cleanup()
-	return
 
 	cfg.begin("Test (3B): no agreement if too many followers disconnect: 9 tests")
 
@@ -223,9 +217,7 @@ func TestFailNoAgree3B(t *testing.T) {
 func TestConcurrentStarts3B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
-	cfg.end()
 	defer cfg.cleanup()
-	return
 
 	cfg.begin("Test (3B): concurrent Start()s")
 
@@ -353,7 +345,6 @@ func TestRejoin3B(t *testing.T) {
 	cfg.disconnect(leader2)
 
 	// old leader connected again
-	fmt.Println("Connecting old leader",leader1)
 	cfg.connect(leader1)
 
 	cfg.one(104, 2, true)
