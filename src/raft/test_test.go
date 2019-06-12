@@ -14,7 +14,6 @@ import "time"
 import "math/rand"
 import "sync/atomic"
 import "sync"
-//import "os"
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
@@ -25,16 +24,15 @@ func TestInitialElection3A(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3A): initial election: 3 tests")
+	cfg.begin("Test (3A): initial election")
 
 	// is a leader elected?
 	cfg.checkOneLeader()
-	fmt.Println("Passed 3A.1.1")
+
 	// sleep a bit to avoid racing with followers learning of the
 	// election, then check that all peers agree on the term.
 	time.Sleep(50 * time.Millisecond)
 	term1 := cfg.checkTerms()
-	fmt.Println("Passed 3A.1.2")
 
 	// does the leader+term stay the same if there is no network failure?
 	time.Sleep(2 * RaftElectionTimeout)
@@ -45,7 +43,6 @@ func TestInitialElection3A(t *testing.T) {
 
 	// there should still be a leader.
 	cfg.checkOneLeader()
-	fmt.Println("Passed 3A.1.3")
 
 	cfg.end()
 }
@@ -55,21 +52,18 @@ func TestReElection3A(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3A): election after network failure 6 tests")
+	cfg.begin("Test (3A): election after network failure")
 
 	leader1 := cfg.checkOneLeader()
-	fmt.Println("Passed 3A.2.1")
 
 	// if the leader disconnects, a new one should be elected.
 	cfg.disconnect(leader1)
 	cfg.checkOneLeader()
-	fmt.Println("Passed 3A.2.2")
 
 	// if the old leader rejoins, that shouldn't
 	// disturb the new leader.
 	cfg.connect(leader1)
 	leader2 := cfg.checkOneLeader()
-	fmt.Println("Passed 3A.2.3")
 
 	// if there's no quorum, no leader should
 	// be elected.
@@ -77,17 +71,14 @@ func TestReElection3A(t *testing.T) {
 	cfg.disconnect((leader2 + 1) % servers)
 	time.Sleep(2 * RaftElectionTimeout)
 	cfg.checkNoLeader()
-	fmt.Println("Passed 3A.2.4")
 
 	// if a quorum arises, it should elect a leader.
 	cfg.connect((leader2 + 1) % servers)
 	cfg.checkOneLeader()
-	fmt.Println("Passed 3A.2.5")
 
 	// re-join of last node shouldn't prevent leader from existing.
 	cfg.connect(leader2)
 	cfg.checkOneLeader()
-	fmt.Println("Passed 3A.2.6")
 
 	cfg.end()
 }
@@ -96,7 +87,8 @@ func TestBasicAgree3B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
-	cfg.begin("Test (3B): basic agreement 6 tests")
+
+	cfg.begin("Test (3B): basic agreement")
 
 	iters := 3
 	for index := 1; index < iters+1; index++ {
@@ -104,14 +96,13 @@ func TestBasicAgree3B(t *testing.T) {
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
-		fmt.Printf("Passed 3B.1.%v.1\n",index)
 
 		xindex := cfg.one(index*100, servers, false)
 		if xindex != index {
 			t.Fatalf("got index %v but expected %v", xindex, index)
 		}
-		fmt.Printf("Passed 3B.1.%v.2\n",index)
 	}
+
 	cfg.end()
 }
 
@@ -120,40 +111,30 @@ func TestFailAgree3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): agreement despite follower disconnection 8 tests")
+	cfg.begin("Test (3B): agreement despite follower disconnection")
 
 	cfg.one(101, servers, false)
-	fmt.Println("Passed 3B.2.1")
 
 	// follower network disconnection
 	leader := cfg.checkOneLeader()
-	fmt.Println("Passed 3B.2.2")
 	cfg.disconnect((leader + 1) % servers)
-	fmt.Println("Disconnecting",leader+1)
 
 	// agree despite one disconnected server?
 	cfg.one(102, servers-1, false)
-	fmt.Println("Passed 3B.2.3")
 	cfg.one(103, servers-1, false)
-	fmt.Println("Passed 3B.2.4")
 	time.Sleep(RaftElectionTimeout)
 	cfg.one(104, servers-1, false)
-	fmt.Println("Passed 3B.2.5")
 	cfg.one(105, servers-1, false)
-	fmt.Println("Passed 3B.2.6")
 
 	// re-connect
 	cfg.connect((leader + 1) % servers)
 
 	// agree with full set of servers?
 	cfg.one(106, servers, true)
-	fmt.Println("Passed 3B.2.7")
 	time.Sleep(RaftElectionTimeout)
 	cfg.one(107, servers, true)
-	fmt.Println("Passed 3B.2.8")
 
 	cfg.end()
-	//os.Exit(0)
 }
 
 func TestFailNoAgree3B(t *testing.T) {
@@ -161,13 +142,12 @@ func TestFailNoAgree3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): no agreement if too many followers disconnect: 9 tests")
+	cfg.begin("Test (3B): no agreement if too many followers disconnect")
 
 	cfg.one(10, servers, false)
-	fmt.Println("Passed 3B.3.1")
+
 	// 3 of 5 followers disconnect
 	leader := cfg.checkOneLeader()
-	fmt.Println("Passed 3B.3.2")
 	cfg.disconnect((leader + 1) % servers)
 	cfg.disconnect((leader + 2) % servers)
 	cfg.disconnect((leader + 3) % servers)
@@ -176,11 +156,9 @@ func TestFailNoAgree3B(t *testing.T) {
 	if ok != true {
 		t.Fatalf("leader rejected Start()")
 	}
-	fmt.Println("Passed 3B.3.3")
 	if index != 2 {
 		t.Fatalf("expected index 2, got %v", index)
 	}
-	fmt.Println("Passed 3B.3.4")
 
 	time.Sleep(2 * RaftElectionTimeout)
 
@@ -188,7 +166,6 @@ func TestFailNoAgree3B(t *testing.T) {
 	if n > 0 {
 		t.Fatalf("%v committed but no majority", n)
 	}
-	fmt.Println("Passed 3B.3.5")
 
 	// repair
 	cfg.connect((leader + 1) % servers)
@@ -198,19 +175,15 @@ func TestFailNoAgree3B(t *testing.T) {
 	// the disconnected majority may have chosen a leader from
 	// among their own ranks, forgetting index 2.
 	leader2 := cfg.checkOneLeader()
-	fmt.Println("Passed 3B.3.6")
 	index2, _, ok2 := cfg.rafts[leader2].Start(30)
 	if ok2 == false {
 		t.Fatalf("leader2 rejected Start()")
 	}
-	fmt.Println("Passed 3B.3.7")
 	if index2 < 2 || index2 > 3 {
 		t.Fatalf("unexpected index %v", index2)
 	}
-	fmt.Println("Passed 3B.3.8")
 
 	cfg.one(1000, servers, true)
-	fmt.Println("Passed 3B.3.9")
 
 	cfg.end()
 }
@@ -321,14 +294,12 @@ func TestRejoin3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): rejoin of partitioned leader: 6 tests")
+	cfg.begin("Test (3B): rejoin of partitioned leader")
 
 	cfg.one(101, servers, true)
-	fmt.Println("Passed 3B.5.1")
 
 	// leader network failure
 	leader1 := cfg.checkOneLeader()
-	fmt.Println("Passed 3B.5.2")
 	cfg.disconnect(leader1)
 
 	// make old leader try to agree on some entries
@@ -338,24 +309,20 @@ func TestRejoin3B(t *testing.T) {
 
 	// new leader commits, also for index=2
 	cfg.one(103, 2, true)
-	fmt.Println("Passed 3B.5.3")
 
 	// new leader network failure
 	leader2 := cfg.checkOneLeader()
-	fmt.Println("Passed 3B.5.4")
 	cfg.disconnect(leader2)
 
 	// old leader connected again
 	cfg.connect(leader1)
 
 	cfg.one(104, 2, true)
-	fmt.Println("Passed 3B.5.5")
 
 	// all together now
 	cfg.connect(leader2)
 
 	cfg.one(105, servers, true)
-	fmt.Println("Passed 3B.5.6")
 
 	cfg.end()
 }
@@ -365,14 +332,12 @@ func TestBackup3B(t *testing.T) {
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (3B): leader backs up quickly over incorrect follower logs: 6 tests")
+	cfg.begin("Test (3B): leader backs up quickly over incorrect follower logs")
 
 	cfg.one(rand.Int(), servers, true)
-	fmt.Println("Passed 3B.6.1")
 
 	// put leader and one follower in a partition
 	leader1 := cfg.checkOneLeader()
-	fmt.Println("Passed 3B.6.2")
 	cfg.disconnect((leader1 + 2) % servers)
 	cfg.disconnect((leader1 + 3) % servers)
 	cfg.disconnect((leader1 + 4) % servers)
@@ -396,11 +361,9 @@ func TestBackup3B(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg.one(rand.Int(), 3, true)
 	}
-	fmt.Println("Passed 3B.6.3")
 
 	// now another partitioned leader and one follower
 	leader2 := cfg.checkOneLeader()
-	fmt.Println("Passed 3B.6.4")
 	other := (leader1 + 2) % servers
 	if leader2 == other {
 		other = (leader2 + 1) % servers
@@ -426,14 +389,12 @@ func TestBackup3B(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg.one(rand.Int(), 3, true)
 	}
-	fmt.Println("Passed 3B.6.5")
 
 	// now everyone
 	for i := 0; i < servers; i++ {
 		cfg.connect(i)
 	}
 	cfg.one(rand.Int(), servers, true)
-	fmt.Println("Passed 3B.6.6")
 
 	cfg.end()
 }

@@ -22,7 +22,6 @@ import (
 	"labrpc"
     "time"
     "math/rand"
-    "fmt"
 )
 
 const LEADER = 2
@@ -141,11 +140,11 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
-
+// Only called when locked
 func (rf *Raft) getLastLogIndex() int {
 	return len(rf.log) - 1
 }
-
+// Only called when locked
 func (rf *Raft) getLastLogTerm() int {
 	if rf.getLastLogIndex() < 0 {
 		return -1
@@ -205,15 +204,12 @@ type AppendEntryReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 	rf.mu.Lock() // Doesn't happen often, can lock for full time
-	//fmt.Println(rf.me,"Locking in vote")
-	//defer rf.mu.Unlock() // Different return times
 	// Check if term is equal to ours
-	// if args.Term > rf.currentTerm {
-	// 	// rf.currentTerm = args.Term
-	// }
+	if args.Term > rf.currentTerm {
+		rf.status = FOLLOWER
+	}
 	if args.Term > rf.currentTerm || (args.Term == rf.currentTerm && rf.votedFor == -1) {
-		// Check if we have not voted for someone this term
-		// rf.votedFor = -1
+		rf.currentTerm = args.Term
 		if rf.getLastLogTerm() <= args.LastLogTerm {
 			if rf.getLastLogIndex() <= args.LastLogIndex || rf.getLastLogTerm() < args.LastLogTerm {
 				// Grant vote
@@ -221,7 +217,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 				reply.Vote = true
 				rf.currentTerm = args.Term
 				reply.Term = rf.currentTerm
-				//fmt.Println(rf.me,"unlocking from vote true")
 				rf.mu.Unlock()
 				return
 			}
@@ -229,113 +224,63 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 	reply.Vote = false
 	reply.Term = rf.currentTerm
-	//fmt.Println(rf.me,"unlocking from vote false")
 	rf.mu.Unlock()
 }
 
-// func (rf *Raft) HeartBeat(args *HeartBeatArgs, reply *HeartBeatReply) {
-// 	// If we receive a heartbeat from our term or greater term
-// 	// Doesn't matter what we're doing, become a follower...
-// 	rf.mu.Lock() // Can lock, short period of time
-// 	if args.Term == rf.currentTerm {
-// 		if rf.currentLeader == -1 { // New heartbeat, set leader
-// 			rf.currentLeader = args.Leader
-// 		}
-// 		if rf.currentLeader == args.Leader {
-// 			rf.status = FOLLOWER
-// 			reply.Valid = true
-// 			rf.heartBeatChan <- true
-// 		} else { // Not correct leader
-// 			reply.Valid = false
-// 		}
-// 	} else if args.Term > rf.currentTerm {
-// 		rf.currentTerm = args.Term
-// 		// New heartbeat, set leader
-// 		rf.currentLeader = args.Leader
-// 		rf.status = FOLLOWER
-// 		reply.Valid = true
-// 	} else { // Not correct leader
-// 		reply.Valid = false
-// 	}
-// 	rf.mu.Unlock()
-// }
-/*
-
-type AppendEntryArgs struct {
-	LastLogIndex 	int
-	LastLogTerm 	int
-	Entries 		[]Command
-	//Term 			int
-}
-
-type AppendEntryReply struct {
-	Success 		bool
-	Term 			int
-}
-*/
-
 func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
-	// If our log is shorter...
 	rf.mu.Lock()
-	// reply false until we're at the base, or match
+	// If we get a term larger than ours, subvert to it
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.currentLeader = args.Leader
 	}
-	//fmt.Println("Receiving appendentry in",rf.me)
+	// If someone has a higher commit level, we have to go with it
 	if args.Term == rf.currentTerm || args.CommitLevel > rf.committedEntry {
-		// if rf.currentLeader == -1 { // New heartbeat, set leader
-			// rf.currentLeader = args.Leader
-		// }
-		// if rf.currentLeader == args.Leader {
+			// Immediately become follower and update term
 			rf.status = FOLLOWER
 			reply.Term = rf.currentTerm
-			// if longer, cut off everythangggggg
+			// if our log is longer than leader's, cut off everythangggggg
 			if len(rf.log) - 1 > args.LastLogIndex {
-				// fmt.Println(rf.me,"cutting off log")
-				fmt.Println(rf.me,"is cutting off the end of its log of length",len(rf.log),"to length",args.LastLogIndex)
 				rf.log = rf.log[:args.LastLogIndex+1]
 			}
-			
+			// If our log is the correct length
 			if rf.getLastLogIndex() == args.LastLogIndex {
-			// If our log is correct length
+				// And the terms match, we can now:
+				//   add anything
+				//   update our latest committed entry
+				// and then let leader know we're caught up
 				if rf.getLastLogTerm() == args.LastLogTerm { // Case of correct
 					// Add records
 					for len(args.Entries) > 0 {
-						fmt.Println(rf.me,"is adding",args.Entries[0].Command,"per",args.Leader)
 						rf.addEntry(args.Entries[0].Command,args.Entries[0].Term)
 						args.Entries = args.Entries[1:len(args.Entries)]
 					}
-					// Found the base, give true
+					// Let leader know we're gucci now
 					reply.Success = INCREMENT
 					// Set our commit level to either our size or the commit level
-					//fmt.Println(rf.me,"with committedEntry",rf.committedEntry,"and lastlogindex",rf.getLastLogIndex(),"received args with commitLevel",args.CommitLevel)
-					
 					if rf.committedEntry < args.CommitLevel {
-						rf.committedEntry = args.CommitLevel // Guaranteed to be a real thing
+						rf.committedEntry = args.CommitLevel
 					}
 					rf.mu.Unlock()
-				} else { // Case of not matching
+				} else { // Case of not matching terms, need to step back one
+					// Cut it!
 					rf.log = rf.log[:len(rf.log)-1]
-					//fmt.Println(rf.me,"unlocking in AppendEntry")
-					rf.mu.Unlock()
+					// We need to step back one
 					reply.Success = DECREMENT
+					rf.mu.Unlock()
 				}
 			} else { // Case of too short
-				//fmt.Println(rf.me,"unlocking in AppendEntry")
-				rf.mu.Unlock()
+				// Also need to step back one
 				reply.Success = DECREMENT
+				rf.mu.Unlock()
 			}
+			// Must unlock before sending things on channels
+			// Even if our logs don't match yet, still subvert ourselves
 			rf.heartBeatChan <- true
-		// } else {
-		// 	//fmt.Println(rf.me,"unlocking in AppendEntry")
-		// 	rf.mu.Unlock()
-		// 	reply.Success = OTHERFAILURE
-		// }
-	} else {
-		fmt.Println(rf.me,"rejected heartbeat with term",rf.currentTerm,"from",args.Leader,"with term",args.Term)
-		rf.mu.Unlock()
+	} else { // This is us rejecting a heartbeat/append entry
+		// because it's too old (or commit level is too low)
 		reply.Success = OTHERFAILURE
+		rf.mu.Unlock()
 	}
 }
 
@@ -371,7 +316,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	if ok {
-		// If true, send a true down the chan
+		// Send down the chan, candidate will determine if valid or not
 		rf.voteChan <-Vote{Vote:reply.Vote,Term:reply.Term}
 	} else {
 	}
@@ -387,22 +332,20 @@ func (rf *Raft) sendAppendEntry(server int, args *AppendEntryArgs, reply *Append
 	ok := rf.peers[server].Call("Raft.AppendEntry", args, reply)
 	rf.mu.Lock()
 	if ok {
-		// if replied false, decrement
 		if reply.Success == DECREMENT && reply.Term == rf.currentTerm {
 			rf.nextIndex[server]--
 		} else if reply.Success == INCREMENT && reply.Term == rf.currentTerm {
 			rf.entryReceived[server] = args.LastLogIndex + len(args.Entries)
 			rf.nextIndex[server] = rf.entryReceived[server]+1
 		}
-	} else {
 	}
 	rf.mu.Unlock()
 	return ok
 }
 
+// Always locked before entering
 func (rf *Raft) addEntry(command interface{},term int) {
 	rf.log = append(rf.log,Command{command,term})
-	//fmt.Println(rf.me,"added command",command,"with index",rf.getLastLogIndex())
 }
 
 //
@@ -420,16 +363,16 @@ func (rf *Raft) addEntry(command interface{},term int) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	// time.Sleep(50 * time.Millisecond)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if rf.status != LEADER {
+	if rf.status != LEADER { // If not leader, reject
 		return -1, -1, false
-	}
+	} // else
 	// Add entry to our log
 	rf.addEntry(command, rf.currentTerm)
 	rf.entryReceived[rf.me] = rf.getLastLogIndex()
-	// the leader function will catch the followers up
+	// the leader section of the goroutine in Make will
+	// catch the followers up
 	return len(rf.log), rf.currentTerm, true
 }
 
@@ -472,9 +415,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.entryReceived = make([]int, len(peers))
 	rf.committedEntry = -1
 	rf.nextCommitted = -1
-	// Separating heartbeats from applyentries
-	// because it won't make a difference really
-	// with how the lab environment is set up
 	rf.voteChan = make(chan Vote)
 	rf.heartBeatChan = make(chan bool)
 
@@ -484,24 +424,24 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	go func() {
 		for {
 			rf.mu.Lock() // Have to lock here if switching on state
-			for rf.committedEntry > rf.nextCommitted {
+			for rf.committedEntry > rf.nextCommitted { // All people see if they can commit
+				// This puts all non-sent commits down the applyCn
 				rf.nextCommitted++
 				msg := ApplyMsg {
 					CommandValid: true,
 					Command: rf.log[rf.nextCommitted].Command,
-					CommandIndex: rf.nextCommitted+1,
+					CommandIndex: rf.nextCommitted+1, // Ours is 0-indexed, tester's is 1-indexed
 				}
-				//fmt.Println(rf.me,"is sending commit index",msg.CommandIndex,"with command",msg.Command)
 				applyCh <- msg
 			}
 			switch rf.status {
 				case FOLLOWER:
 					rf.mu.Unlock()
+					// Waits for event
 					select {
-						// Either it gets a heartbeat, or it doesn't
-						case <-time.After(time.Duration(rand.Intn(100) + 1500) * time.Millisecond):
+						// Either it gets a heartbeat, or it timesout
+						case <-time.After(time.Duration(rand.Intn(100) + 600) * time.Millisecond):
 							rf.mu.Lock()
-							//fmt.Println(rf.me,"switching from follower to candidate")
 							rf.status = CANDIDATE
 							rf.mu.Unlock()
 						case <-rf.heartBeatChan:
@@ -522,7 +462,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 						CandidateID: rf.me,
 						Term: rf.currentTerm,
 					}
-					// may need to send out votes after unlocking
+					// can still be locked over this, this loop doesn't wait
 					for i := 0; i < len(rf.peers); i++ {
 						// Get all votes out before we unlock
 						// Network latency should be slower than this
@@ -531,21 +471,18 @@ func Make(peers []*labrpc.ClientEnd, me int,
 							go rf.sendRequestVote(i,&args,&reply)
 						}
 					}
+					// things can reply once all are sent out
 					rf.mu.Unlock()
 					// Wait for votes, or timeout
 					Loop:
-					for {
+					for { // need to loop until we can break, as we may need to get multiple votes
 						select {
-							case <-time.After(time.Duration(rand.Intn(300) + 700) * time.Millisecond):
-								//timeout, break and try again
-								//fmt.Println(rf.me,"Timeout, try again")
+							case <-time.After(time.Duration(rand.Intn(100) + 600) * time.Millisecond):
+								// Timeout, break and try again
 								break Loop
 							case <-rf.heartBeatChan:
-								// Got a heartbeat, become follower
+								// Got a heartbeat, become follower (in handler)
 								// Term will have been adjusted in handler
-								// rf.mu.Lock()
-								// rf.status = FOLLOWER
-								// rf.mu.Unlock()
 								break Loop
 							case result:= <-rf.voteChan:
 								rf.mu.Lock()
@@ -557,10 +494,19 @@ func Make(peers []*labrpc.ClientEnd, me int,
 									if rf.votes * 2 > len(rf.peers) {
 										// Become leader
 										rf.status = LEADER
-										fmt.Println(rf.me,"became leader")
 										for i := 0; i < len(rf.peers); i++ {
+											// NextIndex catches follower's logs up
+											// therefore we start optimistic and move
+											// back if necessary
 											rf.nextIndex[i] = rf.getLastLogIndex()+1
+											// EntryReceived is to determine our highest
+											// commitlevel is, so we start pessimistic
+											// until we can confirm a log has received this
+											// entry index, in which we could commit it
 											rf.entryReceived[i] = -1
+											// Basically, entryreceived stays at -1 until
+											// follower's log is caught up.  Then it converges
+											// with nextindex
 										}
 										rf.mu.Unlock()
 										break Loop
@@ -573,19 +519,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 						time.Sleep(10 * time.Millisecond)
 					}
 				case LEADER:
-					// Send heartbeats
-					// args := HeartBeatArgs {
-					// 	Term: rf.currentTerm,
-					// 	Leader: rf.me,
-					// }
-					// for i := 0; i < len(rf.peers); i++ {
-					// 	if i != rf.me {
-					// 		reply := HeartBeatReply{}
-					// 		go rf.sendHeartBeat(i,&args,&reply)
-					// 	}
-					// }
 					// Check to see if we can increment our commitlevel
-					// fmt.Println(rf.me,"is the leader during term", rf.currentTerm)
 					count := len(rf.peers) // set so it enters
 					for count*2 > len(rf.peers) {
 						count = 0
@@ -596,6 +530,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 						}
 						if count*2 > len(rf.peers) {
 							rf.committedEntry++
+							// has to step up every time in order to find
+							// the minimum that we have a majority on
 						}
 					}
 					
@@ -603,6 +539,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					for i := 0; i < len(rf.peers); i++ {
 						if i != rf.me { // Don't send to self
 							var lastLogTerm int
+							// keep track of each follower's lastlogindex
+							// with nextIndex
 							if rf.nextIndex[i]-1 >= 0 {
 								// Have something to put
 								lastLogTerm = rf.log[rf.nextIndex[i]-1].Term
@@ -613,19 +551,18 @@ func Make(peers []*labrpc.ClientEnd, me int,
 								// nextindex is 0 if no one has entries
 								LastLogIndex: rf.nextIndex[i]-1,
 								LastLogTerm: lastLogTerm,
-								Entries: make([]Command, 0),
+								Entries: make([]Command, 0), // start an empty array
 								CommitLevel: rf.committedEntry,
 								Term: rf.currentTerm,
 								Leader: rf.me,
 								// Term
 							}
 							for j := rf.nextIndex[i]; j <= rf.getLastLogIndex(); j++ {
+								// Add all entries from where we're checking until now
 								args.Entries = append(args.Entries, rf.log[j])
 							}
 							reply := AppendEntryReply{}
-							//rf.mu.Unlock()
 							go rf.sendAppendEntry(i,&args,&reply)
-							//rf.mu.Lock()
 						}
 					}
 					rf.mu.Unlock()
