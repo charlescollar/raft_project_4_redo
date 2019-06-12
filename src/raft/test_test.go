@@ -129,6 +129,7 @@ func TestFailAgree3B(t *testing.T) {
 	leader := cfg.checkOneLeader()
 	fmt.Println("Passed 3B.2.2")
 	cfg.disconnect((leader + 1) % servers)
+	fmt.Println("Disconnecting",leader+1)
 
 	// agree despite one disconnected server?
 	cfg.one(102, servers-1, false)

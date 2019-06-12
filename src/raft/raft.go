@@ -22,7 +22,7 @@ import (
 	"labrpc"
     "time"
     "math/rand"
-    //"fmt"
+    "fmt"
 )
 
 const LEADER = 2
@@ -208,12 +208,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	//fmt.Println(rf.me,"Locking in vote")
 	//defer rf.mu.Unlock() // Different return times
 	// Check if term is equal to ours
-	if args.Term > rf.currentTerm {
-		rf.currentTerm = args.Term
-		rf.votedFor = -1
-	}
-	if args.Term > rf.currentTerm || (args.Term == rf.currentTerm && (rf.votedFor == args.CandidateID || rf.votedFor == -1)) {
+	// if args.Term > rf.currentTerm {
+	// 	// rf.currentTerm = args.Term
+	// }
+	if args.Term > rf.currentTerm || (args.Term == rf.currentTerm && rf.votedFor == -1) {
 		// Check if we have not voted for someone this term
+		// rf.votedFor = -1
 		if rf.getLastLogTerm() <= args.LastLogTerm {
 			if rf.getLastLogIndex() <= args.LastLogIndex || rf.getLastLogTerm() < args.LastLogTerm {
 				// Grant vote
@@ -283,17 +283,18 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 		rf.currentLeader = args.Leader
 	}
 	//fmt.Println("Receiving appendentry in",rf.me)
-	if args.Term == rf.currentTerm {
-		if rf.currentLeader == -1 { // New heartbeat, set leader
-			rf.currentLeader = args.Leader
-		}
-		if rf.currentLeader == args.Leader {
+	if args.Term == rf.currentTerm || args.CommitLevel > rf.committedEntry {
+		// if rf.currentLeader == -1 { // New heartbeat, set leader
+			// rf.currentLeader = args.Leader
+		// }
+		// if rf.currentLeader == args.Leader {
 			rf.status = FOLLOWER
 			reply.Term = rf.currentTerm
 			// if longer, cut off everythangggggg
 			if len(rf.log) - 1 > args.LastLogIndex {
+				// fmt.Println(rf.me,"cutting off log")
+				fmt.Println(rf.me,"is cutting off the end of its log of length",len(rf.log),"to length",args.LastLogIndex)
 				rf.log = rf.log[:args.LastLogIndex+1]
-				//fmt.Println(rf.me,"is cutting off the end of its log of length",len(rf.log),"to length",args.LastLogIndex)
 			}
 			
 			if rf.getLastLogIndex() == args.LastLogIndex {
@@ -301,6 +302,7 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 				if rf.getLastLogTerm() == args.LastLogTerm { // Case of correct
 					// Add records
 					for len(args.Entries) > 0 {
+						fmt.Println(rf.me,"is adding",args.Entries[0].Command,"per",args.Leader)
 						rf.addEntry(args.Entries[0].Command,args.Entries[0].Term)
 						args.Entries = args.Entries[1:len(args.Entries)]
 					}
@@ -325,12 +327,13 @@ func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
 				reply.Success = DECREMENT
 			}
 			rf.heartBeatChan <- true
-		} else {
-			//fmt.Println(rf.me,"unlocking in AppendEntry")
-			rf.mu.Unlock()
-			reply.Success = OTHERFAILURE
-		}
+		// } else {
+		// 	//fmt.Println(rf.me,"unlocking in AppendEntry")
+		// 	rf.mu.Unlock()
+		// 	reply.Success = OTHERFAILURE
+		// }
 	} else {
+		fmt.Println(rf.me,"rejected heartbeat with term",rf.currentTerm,"from",args.Leader,"with term",args.Term)
 		rf.mu.Unlock()
 		reply.Success = OTHERFAILURE
 	}
@@ -417,6 +420,7 @@ func (rf *Raft) addEntry(command interface{},term int) {
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
+	// time.Sleep(50 * time.Millisecond)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.status != LEADER {
@@ -495,7 +499,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					rf.mu.Unlock()
 					select {
 						// Either it gets a heartbeat, or it doesn't
-						case <-time.After(time.Duration(rand.Intn(100) + 800) * time.Millisecond):
+						case <-time.After(time.Duration(rand.Intn(100) + 1500) * time.Millisecond):
 							rf.mu.Lock()
 							//fmt.Println(rf.me,"switching from follower to candidate")
 							rf.status = CANDIDATE
@@ -553,6 +557,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 									if rf.votes * 2 > len(rf.peers) {
 										// Become leader
 										rf.status = LEADER
+										fmt.Println(rf.me,"became leader")
 										for i := 0; i < len(rf.peers); i++ {
 											rf.nextIndex[i] = rf.getLastLogIndex()+1
 											rf.entryReceived[i] = -1
@@ -565,6 +570,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 								// this will flush out the channel of old votes as well
 								rf.mu.Unlock()
 						}
+						time.Sleep(10 * time.Millisecond)
 					}
 				case LEADER:
 					// Send heartbeats
@@ -579,7 +585,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					// 	}
 					// }
 					// Check to see if we can increment our commitlevel
-					
+					// fmt.Println(rf.me,"is the leader during term", rf.currentTerm)
 					count := len(rf.peers) // set so it enters
 					for count*2 > len(rf.peers) {
 						count = 0
